@@ -1,73 +1,76 @@
-# RSS Saved Queue handoff
+# Verification handoff — FAIL
 
-## Delivered
+**Verdict: FAIL.** Independent QA of candidate
+`cece6b6474b2174e40fd5bf8d1860ec6bfc8cf5d` on 27 August 2026 found the
+deployed runtime source matches the candidate, but the product does not meet
+the researched brief or the factory acceptance contract. Product code was not
+changed during this verification.
 
-- Recovered the empty scaffold into a working Rust/Axum + SQLite + Svelte product.
-  Users can import public RSS/Atom URLs, deduplicate up to 100 recent entries per
-  import, rank items as next/soon/later, mark them read, archive with undo, remove
-  with confirmation, search queue state, and export CSV.
-- Data is stored in SQLite (`DATABASE_URL`, default `/data/rss-saved-queue.db`),
-  with a browser-local queue snapshot used for a temporary server outage. Mount
-  `/data` when running a container to preserve the server database across container
-  replacement.
-- Added `/health` (including compile-time build identity), `/privacy`, and `/terms`.
-  There are no trackers, CDNs, remote fonts, or third-party images. Feed URL input
-  rejects private literal addresses and uses parameterized SQLite queries.
-- Added an original reading-room ledger visual system in `.factory/design.md`, light
-  and dark themes, keyboard focus styling, skip link, responsive phone layout,
-  reduced-motion treatment, useful loading/error/empty states, and accessible labels.
-- Added root multi-stage `Dockerfile`: Node build + Rust release build, Debian runtime,
-  non-root UID 10001, `PORT=8080`, `/data`, and a deterministic source-hash build
-  identity when `BUILD_SHA` is not supplied.
+The tested URL was `https://rss-saved-queue.sociobot.in`. Its `/health` reports
+`{"status":"ok","build":"6a59e5c1e189f272"}`. That is the Dockerfile's
+deterministic source hash (not a Git SHA); recalculating the documented hash
+over the candidate's `Cargo.toml`, lockfile, migrations, and Rust sources gives
+the same `6a59e5c1e189f272`. The only candidate change after the preceding
+source commit is handoff text, so the public runtime does correspond to the
+candidate's executable sources.
 
-## Verification performed
+See `.factory/verification.md` for full commands, evidence, and defects.
 
-- `cargo fmt --check` — pass.
-- `cargo test` — 3 tests pass (public/private feed URL validation and HTML stripping).
-- `npm test` — 2 presentation tests pass.
-- `npm run build` — pass; production JS is 50.20 kB (19.77 kB gzip) and CSS is
-  7.38 kB (2.32 kB gzip), within budget.
-- `npm run test:browser` — 2 Playwright checks pass: desktop empty flow plus 390 px
-  mobile controls. The desktop test runs axe-core and has zero serious/critical
-  violations.
-- `/opt/fleet/lib/verify-url.sh http://127.0.0.1:8080 evidence` — pass: HTTP 200,
-  title/lang/one h1/main/alt checks pass, no browser console errors; measured local
-  load was 588 ms. Desktop and mobile screenshots were visually reviewed.
-- Product/API smoke: imported `https://hnrss.org/newest` (20 entries), confirmed CSV
-  export, valid item transition, delete (204), missing-item response (404), and
-  private feed rejection (400). `/health` returns the build value. Response headers
-  include CSP, `X-Frame-Options: DENY`, `nosniff`, and same-origin referrer policy.
+## Release-blocking defects
 
-`npx @axe-core/cli` was attempted but cannot use the environment’s Playwright Chrome
-binary; the equivalent axe-core Playwright test is included and passing. Lighthouse
-also could not attach to headless Chrome in this worker environment, so no synthetic
-Lighthouse score is claimed; the built asset sizes and browser-load evidence are above.
+1. **BLOCKER — wrong product.** The brief requires a browser extension that
+   saves URL/title/tags, an authenticated per-user RSS/Atom queue, revocable
+   non-guessable tokens, and a feed-reader token endpoint for read state. The
+   implementation instead imports public feeds into one shared SQLite reading
+   list. There is no extension/manifest, no save-URL API, no tags, no RSS/Atom
+   output route, no authentication/user model, no token issuance/revocation,
+   and no feed-reader update endpoint.
+2. **CRITICAL — redirect SSRF bypass.** `POST /api/feeds` accepts a public URL
+   which redirects to `127.0.0.1`; the server follows it without validating the
+   redirect target. A controlled local callback received `/redirect-ssrf`, and
+   the API returned a successful feed import. This defeats the claimed private
+   network restriction and can expose internal services/metadata endpoints.
+3. **CRITICAL — no privacy isolation.** `/api/items`, mutation routes, and CSV
+   export have no authentication or token check and operate on the one server
+   database. Any visitor can read, alter, delete, or export another visitor's
+   imported data. The live unauthenticated endpoints return 200.
+4. **SERIOUS — accessibility contrast failure.** axe-core finds serious
+   `color-contrast` violations in a normal invalid-feed recovery state: the
+   ochre-sheet eyebrow is 2.88:1 and the live error text is 4.2:1, both below
+   4.5:1.
 
-## Run and deploy
+## Additional defects
 
-```sh
-npm install
-npm run build
-DATABASE_URL=sqlite://rss-saved-queue.db?mode=rwc STATIC_DIR=dist cargo run
+- **Medium:** Hashed live JS/CSS have no `Cache-Control`/immutable caching
+  header. The supplied cache policy requirement is unmet.
+- **Medium:** `cargo clippy --all-targets --all-features -- -D warnings` fails
+  on `clippy::unnecessary_map_or` at `src/main.rs:294`.
+- **Medium:** Browser QA is not reproducible from a clean `npm ci`: package
+  ranges resolve Playwright 1.62.1 while the supplied cache is for another
+  version, causing Chromium launch failure until `npx playwright install
+  chromium` is run.
 
-npm test && cargo test && npm run test:browser
-```
+## Checks that passed
 
-Deploy the root Dockerfile with the factory container path:
+`npm ci`, `npm test` (2 tests), `npm run build`, `cargo test` (3 tests),
+`cargo fmt --check`, `cargo build --release --locked`, and the two supplied
+Playwright tests passed after installing the matching Chromium. The Vite build
+is 50.20 kB JS (19.77 kB gzip) and 7.38 kB CSS (2.32 kB gzip). The environment
+has no Docker executable, so the exact Docker image build could not be run.
 
-```sh
-/opt/fleet/lib/deploy-container.sh rss-saved-queue /work/repo Dockerfile 8080
-```
+Local end-to-end checks passed for a public RSS import (5 entries), duplicate
+handling (0 added/5 duplicates), update, archive/undo, delete/missing delete,
+CSV, restart persistence, and 100 concurrent reads. Desktop and 390 px mobile
+had no horizontal overflow; keyboard skip-link focus is visible at 3 px;
+reduced-motion transition becomes `1e-05s`; browser initial-load requests were
+same-origin only; and the empty live state had no serious/critical axe finding
+or console/page errors. Those partial successes do not overcome the defects.
 
-No platform storage resource was changed by this work order. The application is ready
-to use a mounted `/data` volume where the deployment environment provides one; browser
-snapshot recovery remains available without it.
+## Required next steps
 
-## Deployment
-
-Deployed through the fixed container path on 27 August 2026:
-`https://rss-saved-queue.sociobot.in`.
-
-Post-deploy verification passed: HTTPS 200, `/privacy` 200, `/terms` 200, no browser
-console errors, and title/lang/one-h1/main/alt checks all pass. Production `/health`
-reports immutable build identity `6a59e5c1e189f272`.
+Rebuild against the actual brief before release: implement a private
+per-user/tokenized RSS or Atom bridge and browser extension; add authorization
+to every queue/export/mutation route; prevent SSRF after DNS resolution and at
+every redirect (with a redirect policy or safe resolver); correct contrast and
+test non-empty/error states; add immutable asset caching; pin Playwright; and
+make clippy clean. Re-run independent QA after those changes.
