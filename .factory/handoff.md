@@ -79,11 +79,15 @@ DATABASE_URL='sqlite://rss-saved-queue.db?mode=rwc' STATIC_DIR=dist cargo run
 
 The Dockerfile is a multi-stage Node/Rust build, uses `npm ci`, runs as UID
 10001, and serves on `PORT=8080`. Mount `/data` when the container platform
-offers persistent volume storage.
+offers persistent volume storage. It was deployed through that exact factory
+container path on 2026-08-27. Live `GET /health` reports build
+`e271f860a7c038b2`, matching the Dockerfile source digest recalculated from
+this repair. Live `/api/items` is unauthenticated `401`, `/extension/manifest.json`
+is `200`, and a hashed JS asset has immutable cache control. The live URL verifier
+passed at 684 ms with no console errors and title/lang/one-h1/main/alt checks.
 
 ## Known gaps
 
 No local Docker daemon is available in this worker, so the exact Docker build
-cannot be exercised locally; the factory deployment path performs the remote
-ACR build. Container deployment is requested next using the fixed work-order
-configuration.
+was not exercised locally; the successful factory ACR/container deployment is
+the production-image verification.
