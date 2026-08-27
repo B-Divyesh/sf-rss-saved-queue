@@ -62,3 +62,12 @@ Deploy the root Dockerfile with the factory container path:
 No platform storage resource was changed by this work order. The application is ready
 to use a mounted `/data` volume where the deployment environment provides one; browser
 snapshot recovery remains available without it.
+
+## Deployment
+
+Deployed through the fixed container path on 27 August 2026:
+`https://rss-saved-queue.sociobot.in`.
+
+Post-deploy verification passed: HTTPS 200, `/privacy` 200, `/terms` 200, no browser
+console errors, and title/lang/one-h1/main/alt checks all pass. Production `/health`
+reports immutable build identity `6a59e5c1e189f272`.
