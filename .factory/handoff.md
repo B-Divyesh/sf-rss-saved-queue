@@ -1,76 +1,89 @@
-# Verification handoff — FAIL
+# RSS Saved Queue repair handoff
 
-**Verdict: FAIL.** Independent QA of candidate
-`cece6b6474b2174e40fd5bf8d1860ec6bfc8cf5d` on 27 August 2026 found the
-deployed runtime source matches the candidate, but the product does not meet
-the researched brief or the factory acceptance contract. Product code was not
-changed during this verification.
+## Delivered
 
-The tested URL was `https://rss-saved-queue.sociobot.in`. Its `/health` reports
-`{"status":"ok","build":"6a59e5c1e189f272"}`. That is the Dockerfile's
-deterministic source hash (not a Git SHA); recalculating the documented hash
-over the candidate's `Cargo.toml`, lockfile, migrations, and Rust sources gives
-the same `6a59e5c1e189f272`. The only candidate change after the preceding
-source commit is handoff text, so the public runtime does correspond to the
-candidate's executable sources.
+Repaired every release-blocking finding recorded in
+`.factory/verification.md` for candidate `cece6b6474b2174e40fd5bf8d1860ec6bfc8cf5d`.
 
-See `.factory/verification.md` for full commands, evidence, and defects.
+- Rebuilt the product around the researched job: a private saved-link queue.
+  It accepts only user-entered title, HTTP(S) URL, and tags; it no longer fetches
+  public feeds or stores publisher content. Existing queue handling remains:
+  priority, read/archive, undo, delete, search, and authenticated CSV export.
+- Added an included Manifest V3 browser extension at `/extension/`. It saves the
+  active tab’s title/URL plus user-entered tags through the same private API. Its
+  device key is stored in extension-local storage, not sync storage.
+- Added per-device private identity. `POST /api/session` creates a 256-bit random
+  device key; only its SHA-256 hash is stored. Every queue, token, and CSV route
+  requires `Authorization: Bearer <device-key>` and scopes SQL by account.
+- Added cryptographically random, hash-at-rest, revocable private RSS links at
+  `GET /feed/<token>/rss` and reader state changes at
+  `POST /reader/<token>/items/<id>/read`. Tokens are shown only on creation and
+  cannot serve or mutate data after revocation.
+- Removed the server-side public-feed importer entirely. This removes the prior
+  redirect/DNS SSRF class rather than attempting to maintain a risky fetcher.
+- Corrected error/add-sheet contrast (including the verifier’s exact ochre state),
+  added populated/error-state axe coverage, immutable hashed-asset cache headers,
+  permissions policy, reproducible `npm ci`, and exact Playwright 1.58.2 pinning.
+- Updated the reading-room visual thesis, privacy/terms copy, README, Docker build
+  (`npm ci`), and build output so the extension ships at `/extension/`.
 
-## Release-blocking defects
+## Verification performed
 
-1. **BLOCKER — wrong product.** The brief requires a browser extension that
-   saves URL/title/tags, an authenticated per-user RSS/Atom queue, revocable
-   non-guessable tokens, and a feed-reader token endpoint for read state. The
-   implementation instead imports public feeds into one shared SQLite reading
-   list. There is no extension/manifest, no save-URL API, no tags, no RSS/Atom
-   output route, no authentication/user model, no token issuance/revocation,
-   and no feed-reader update endpoint.
-2. **CRITICAL — redirect SSRF bypass.** `POST /api/feeds` accepts a public URL
-   which redirects to `127.0.0.1`; the server follows it without validating the
-   redirect target. A controlled local callback received `/redirect-ssrf`, and
-   the API returned a successful feed import. This defeats the claimed private
-   network restriction and can expose internal services/metadata endpoints.
-3. **CRITICAL — no privacy isolation.** `/api/items`, mutation routes, and CSV
-   export have no authentication or token check and operate on the one server
-   database. Any visitor can read, alter, delete, or export another visitor's
-   imported data. The live unauthenticated endpoints return 200.
-4. **SERIOUS — accessibility contrast failure.** axe-core finds serious
-   `color-contrast` violations in a normal invalid-feed recovery state: the
-   ochre-sheet eyebrow is 2.88:1 and the live error text is 4.2:1, both below
-   4.5:1.
+Clean-install and release gates on 2026-08-27 UTC:
 
-## Additional defects
+```sh
+npm ci                                      # pass; 87 packages, 0 vulnerabilities
+npm test                                    # pass; 2 tests
+npm run check                               # pass; 0 errors, 0 warnings
+npm run build                               # pass; JS 54.06 kB / 21.00 kB gzip, CSS 6.94 kB / 2.17 kB gzip
+npx playwright test --reporter=line         # pass; 5 tests
+cargo fmt --check                           # pass
+cargo test                                  # pass; 3 tests
+cargo clippy --all-targets --all-features -- -D warnings  # pass
+cargo build --release --locked              # pass
+git diff --check                            # pass
+```
 
-- **Medium:** Hashed live JS/CSS have no `Cache-Control`/immutable caching
-  header. The supplied cache policy requirement is unmet.
-- **Medium:** `cargo clippy --all-targets --all-features -- -D warnings` fails
-  on `clippy::unnecessary_map_or` at `src/main.rs:294`.
-- **Medium:** Browser QA is not reproducible from a clean `npm ci`: package
-  ranges resolve Playwright 1.62.1 while the supplied cache is for another
-  version, causing Chromium launch failure until `npx playwright install
-  chromium` is run.
+Browser checks cover desktop save/populated flow with axe, invalid-URL recovery
+with axe, 390 px no-horizontal-overflow controls, keyboard skip-link focus and
+activation, and the extension manifest/save contract. Both axe runs have zero
+serious/critical violations. The supplied URL verifier against local port 8090
+reported title/lang/one-h1/main/alt checks and no console errors (582 ms load).
 
-## Checks that passed
+API regression smoke against a fresh local SQLite DB proved:
 
-`npm ci`, `npm test` (2 tests), `npm run build`, `cargo test` (3 tests),
-`cargo fmt --check`, `cargo build --release --locked`, and the two supplied
-Playwright tests passed after installing the matching Chromium. The Vite build
-is 50.20 kB JS (19.77 kB gzip) and 7.38 kB CSS (2.32 kB gzip). The environment
-has no Docker executable, so the exact Docker image build could not be run.
+```text
+cross-account PATCH: 404
+unauthenticated GET /api/items: 401
+private feed: 200
+reader marks item read: 200
+owner revoke: 204
+revoked feed: 404
+```
 
-Local end-to-end checks passed for a public RSS import (5 entries), duplicate
-handling (0 added/5 duplicates), update, archive/undo, delete/missing delete,
-CSV, restart persistence, and 100 concurrent reads. Desktop and 390 px mobile
-had no horizontal overflow; keyboard skip-link focus is visible at 3 px;
-reduced-motion transition becomes `1e-05s`; browser initial-load requests were
-same-origin only; and the empty live state had no serious/critical axe finding
-or console/page errors. Those partial successes do not overcome the defects.
+Response checks confirmed `Cache-Control: public, max-age=31536000, immutable`
+on hashed assets; API responses are `no-store`; and CSP, nosniff,
+same-origin referrer policy, DENY framing, and Permissions-Policy are present.
+There are no third-party scripts, fonts, trackers, analytics, page images, or
+service worker. Offline is intentionally a clear reconnect/error state rather
+than a cached copy of private queue data.
 
-## Required next steps
+## Run and deploy
 
-Rebuild against the actual brief before release: implement a private
-per-user/tokenized RSS or Atom bridge and browser extension; add authorization
-to every queue/export/mutation route; prevent SSRF after DNS resolution and at
-every redirect (with a redirect policy or safe resolver); correct contrast and
-test non-empty/error states; add immutable asset caching; pin Playwright; and
-make clippy clean. Re-run independent QA after those changes.
+```sh
+npm ci && npm run build
+DATABASE_URL='sqlite://rss-saved-queue.db?mode=rwc' STATIC_DIR=dist cargo run
+
+/opt/fleet/lib/deploy-container.sh rss-saved-queue /work/repo Dockerfile 8080
+```
+
+The Dockerfile is a multi-stage Node/Rust build, uses `npm ci`, runs as UID
+10001, and serves on `PORT=8080`. Mount `/data` when the container platform
+offers persistent volume storage.
+
+## Known gaps
+
+No local Docker daemon is available in this worker, so the exact Docker build
+cannot be exercised locally; the factory deployment path performs the remote
+ACR build. Container deployment is requested next using the fixed work-order
+configuration.

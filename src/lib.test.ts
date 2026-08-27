@@ -6,7 +6,7 @@ describe('queue presentation helpers', () => {
     expect(priorityLabel('next')).toBe('Read next');
     expect(priorityLabel('later')).toBe('Read later');
   });
-  it('does not throw for absent dates', () => {
-    expect(dateLabel(null)).toBe('No date');
+  it('handles an invalid saved date safely', () => {
+    expect(dateLabel('not-a-date')).toBe('No date');
   });
 });

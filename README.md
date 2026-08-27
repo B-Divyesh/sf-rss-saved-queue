@@ -1,40 +1,61 @@
 # RSS Saved Queue
 
-RSS Saved Queue is a calm, durable reading list for people who use RSS. Add an RSS
-or Atom feed, choose what to read next, mark items read or archived, and export your
-list when you need it. It has no accounts, ads, or analytics.
+RSS Saved Queue is a private, deliberately small reading queue for people who
+save links from around the web and want to read them in their own RSS reader.
+It stores only the title, URL, tags, and queue state you provide; it never
+fetches saved pages or imports public feeds.
+
+Each browser receives a random device key stored locally. The server retains
+only its SHA-256 hash, so every API request and export is isolated to that
+device key. Treat it like a password. The app can create long random,
+revocable RSS links for feed readers; the reader state endpoint is
+`POST /reader/<feed-token>/items/<id>/read`.
+
+## Use it
+
+Open the app, save a page, then choose **Connect reader** to create a private
+RSS link. The newly generated link is shown exactly once; paste it into your
+reader and revoke it from the app whenever needed.
+
+To use the browser extension, download `/extension/` from a running instance
+or load the repository's `extension/` directory as an unpacked Manifest V3
+extension. In the extension options, paste the service URL and device key shown
+under **Connect reader**. The extension saves the active tab's title and URL,
+plus tags you enter.
 
 ## Run locally
 
 Requires Node 22+ and Rust.
 
-```
-npm install
+```sh
+npm ci
 npm run build
-DATABASE_URL=sqlite://rss-saved-queue.db?mode=rwc STATIC_DIR=dist cargo run
+DATABASE_URL='sqlite://rss-saved-queue.db?mode=rwc' STATIC_DIR=dist cargo run
 ```
 
-Open `http://localhost:8080`. During UI development, run `cargo run` in one terminal
-and `npm run dev` in another; Vite proxies API requests to the Rust service.
+Open <http://localhost:8080>. The default production database is
+`/data/rss-saved-queue.db`; mount `/data` when running the container to keep
+saved queues across replacements.
 
 ## Verify
 
-```
+```sh
+npm ci
 npm test
+npm run check
 npm run build
+npx playwright test --reporter=line
+cargo fmt --check
 cargo test
+cargo clippy --all-targets --all-features -- -D warnings
+cargo build --release --locked
 ```
 
-The Docker image is a multi-stage non-root image and listens on `PORT` (default
-`8080`). SQLite is stored under `/data/rss-saved-queue.db`; mount `/data` for durable
-container storage.
+The root Dockerfile builds the Svelte frontend and Rust service, runs as a
+non-root user, and listens on `PORT` (default `8080`). Built hashed assets are
+served with immutable caching; API and private-feed responses are not stored.
 
-## Deploy
+## Privacy and legal
 
-The factory deploys the root `Dockerfile` through its container path. The image build
-identity is baked into `/health` as `build`, using the `BUILD_SHA` build argument.
-
-## Data and legal
-
-See `/privacy` and `/terms`. Imported feed URLs and their public entries are stored
-only to provide the queue. The browser also keeps a local recovery snapshot.
+There are no trackers, analytics, external fonts, or third-party scripts.
+See `/privacy` and `/terms` in the running app.

@@ -1,0 +1,5 @@
+html[data-theme='light'] .eyebrow,
+html[data-theme='light'] .meta,
+html[data-theme='light'] .optional {
+  color: #29483d;
+}

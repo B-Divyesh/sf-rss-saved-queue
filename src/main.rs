@@ -1,13 +1,15 @@
 mod db;
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, Query, Request, State},
     http::{header, HeaderValue, StatusCode},
+    middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::{get, patch, post},
     Json, Router,
 };
-use feed_rs::parser;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
@@ -26,22 +28,20 @@ const BUILD_SHA: &str = match option_env!("BUILD_SHA") {
 #[derive(Clone)]
 struct AppState {
     pool: SqlitePool,
-    client: reqwest::Client,
     static_dir: String,
 }
+
 #[derive(Serialize)]
 struct Health {
     status: &'static str,
     build: &'static str,
 }
-#[derive(Serialize, Deserialize, sqlx::FromRow, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 struct Item {
     id: i64,
     title: String,
     url: String,
-    source: String,
-    summary: String,
-    published_at: Option<String>,
+    tags: Vec<String>,
     saved_at: String,
     status: String,
     priority: String,
@@ -57,38 +57,51 @@ struct UpdateItem {
     priority: Option<String>,
 }
 #[derive(Deserialize)]
-struct AddFeed {
-    url: String,
-}
-#[derive(Serialize)]
-struct ImportResult {
-    feed_title: String,
-    added: usize,
-    duplicates: usize,
-}
-#[derive(Clone)]
-struct ParsedItem {
+struct SaveItem {
     title: String,
     url: String,
-    source: String,
-    summary: String,
-    published_at: Option<String>,
-    hash: String,
+    #[serde(default)]
+    tags: Vec<String>,
+}
+#[derive(Deserialize)]
+struct CreateToken {
+    label: Option<String>,
+}
+#[derive(Serialize, sqlx::FromRow)]
+struct TokenInfo {
+    id: i64,
+    label: String,
+    created_at: String,
+    revoked_at: Option<String>,
+}
+#[derive(Serialize)]
+struct Session {
+    token: String,
+}
+#[derive(Serialize)]
+struct CreatedToken {
+    id: i64,
+    label: String,
+    token: String,
+    feed_path: String,
 }
 #[derive(Serialize)]
 struct ApiMessage {
     error: String,
 }
+
 #[derive(Debug, Error)]
 enum AppError {
     #[error("{0}")]
     Bad(String),
     #[error("{0}")]
     Missing(String),
+    #[error("{0}")]
+    Unauthorized(String),
+    #[error("{0}")]
+    Internal(String),
     #[error(transparent)]
     Db(#[from] sqlx::Error),
-    #[error(transparent)]
-    Network(#[from] reqwest::Error),
 }
 impl AppError {
     fn bad(s: impl Into<String>) -> Self {
@@ -97,34 +110,29 @@ impl AppError {
     fn not_found(s: impl Into<String>) -> Self {
         Self::Missing(s.into())
     }
+    fn unauthorized(s: impl Into<String>) -> Self {
+        Self::Unauthorized(s.into())
+    }
+    fn internal(s: impl Into<String>) -> Self {
+        Self::Internal(s.into())
+    }
 }
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = match self {
             Self::Bad(_) => StatusCode::BAD_REQUEST,
             Self::Missing(_) => StatusCode::NOT_FOUND,
-            Self::Db(ref e) => {
-                error!(error=%e, "database error");
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-            Self::Network(ref e) => {
-                error!(error=%e, "feed request failed");
-                StatusCode::BAD_GATEWAY
-            }
+            Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+            Self::Internal(_) | Self::Db(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        (
-            status,
-            Json(ApiMessage {
-                error: match self {
-                    Self::Db(_) => "The queue could not be updated. Please try again.".into(),
-                    Self::Network(_) => {
-                        "Could not fetch that feed. Check the URL and try again.".into()
-                    }
-                    Self::Bad(s) | Self::Missing(s) => s,
-                },
-            }),
-        )
-            .into_response()
+        if let Self::Db(ref e) = self {
+            error!(error=%e, "database error");
+        }
+        let error = match self {
+            Self::Bad(s) | Self::Missing(s) | Self::Unauthorized(s) | Self::Internal(s) => s,
+            Self::Db(_) => "The queue could not be updated. Please try again.".into(),
+        };
+        (status, Json(ApiMessage { error })).into_response()
     }
 }
 
@@ -147,52 +155,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tokio::fs::create_dir_all(parent).await?;
         }
     }
-    let static_dir = env::var("STATIC_DIR").unwrap_or_else(|_| "dist".into());
-    let state = AppState {
+    let state = Arc::new(AppState {
         pool: db::connect(&database_url).await?,
-        client: reqwest::Client::builder()
-            .user_agent("RSS Saved Queue/1.0 (+https://rss-saved-queue.sociobot.in)")
-            .timeout(std::time::Duration::from_secs(15))
-            .build()?,
-        static_dir: static_dir.clone(),
-    };
-    let api = Router::new()
-        .route("/health", get(health))
-        .route("/api/items", get(list_items))
-        .route("/api/items/:id", patch(update_item).delete(delete_item))
-        .route("/api/feeds", post(import_feed))
-        .route("/api/export.csv", get(export_csv))
-        .route("/privacy", get(index_page))
-        .route("/terms", get(index_page))
-        .with_state(Arc::new(state));
-    let app = api
-        .fallback_service(ServeDir::new(static_dir).append_index_html_on_directories(true))
-        .layer(SetResponseHeaderLayer::overriding(
-            header::X_CONTENT_TYPE_OPTIONS,
-            HeaderValue::from_static("nosniff"),
-        ))
-        .layer(SetResponseHeaderLayer::overriding(
-            header::REFERRER_POLICY,
-            HeaderValue::from_static("same-origin"),
-        ))
-        .layer(SetResponseHeaderLayer::overriding(
-            http::HeaderName::from_static("x-frame-options"),
-            HeaderValue::from_static("DENY"),
-        ))
-        .layer(SetResponseHeaderLayer::overriding(
-            http::HeaderName::from_static("content-security-policy"),
-            HeaderValue::from_static("default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"),
-        ));
+        static_dir: env::var("STATIC_DIR").unwrap_or_else(|_| "dist".into()),
+    });
     let port = env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(8080);
     let listener = tokio::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], port))).await?;
     info!(port, build = BUILD_SHA, "rss saved queue listening");
-    axum::serve(listener, app)
+    axum::serve(listener, app(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+fn app(state: Arc<AppState>) -> Router {
+    let static_dir = state.static_dir.clone();
+    Router::new()
+        .route("/health", get(health))
+        .route("/api/session", post(create_session))
+        .route("/api/items", get(list_items).post(save_item))
+        .route("/api/items/:id", patch(update_item).delete(delete_item))
+        .route("/api/export.csv", get(export_csv))
+        .route("/api/feed-tokens", get(list_feed_tokens).post(create_feed_token))
+        .route("/api/feed-tokens/:id/revoke", post(revoke_feed_token))
+        .route("/feed/:token/rss", get(render_feed))
+        .route("/reader/:token/items/:id/read", post(reader_mark_read))
+        .route("/privacy", get(index_page)).route("/terms", get(index_page))
+        .with_state(state)
+        .fallback_service(ServeDir::new(static_dir).append_index_html_on_directories(true))
+        .layer(middleware::from_fn(cache_headers))
+        .layer(SetResponseHeaderLayer::overriding(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff")))
+        .layer(SetResponseHeaderLayer::overriding(header::REFERRER_POLICY, HeaderValue::from_static("same-origin")))
+        .layer(SetResponseHeaderLayer::overriding(http::HeaderName::from_static("x-frame-options"), HeaderValue::from_static("DENY")))
+        .layer(SetResponseHeaderLayer::overriding(http::HeaderName::from_static("permissions-policy"), HeaderValue::from_static("camera=(), microphone=(), geolocation=()")))
+        .layer(SetResponseHeaderLayer::overriding(http::HeaderName::from_static("content-security-policy"), HeaderValue::from_static("default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'")))
+}
+
+async fn cache_headers(request: Request, next: Next) -> Response {
+    let path = request.uri().path().to_owned();
+    let mut response = next.run(request).await;
+    let value = if path.starts_with("/assets/") {
+        "public, max-age=31536000, immutable"
+    } else if path.starts_with("/api/") || path == "/health" {
+        "no-store"
+    } else {
+        "no-cache"
+    };
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static(value));
+    response
 }
 async fn shutdown_signal() {
     let ctrl_c = async {
@@ -222,30 +237,110 @@ async fn index_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, 
             .map_err(|_| AppError::bad("The web application is not installed."))?,
     ))
 }
+
+fn random_token() -> String {
+    let mut bytes = [0u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+fn token_hash(token: &str) -> String {
+    format!("{:x}", Sha256::digest(token.as_bytes()))
+}
+fn bearer(headers: &axum::http::HeaderMap) -> Result<&str, AppError> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            AppError::unauthorized("Sign in on this device to access your private queue.")
+        })
+}
+async fn account_from_headers(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+) -> Result<i64, AppError> {
+    db::account_for_token(&state.pool, &token_hash(bearer(headers)?))
+        .await?
+        .ok_or_else(|| AppError::unauthorized("This device key is no longer active."))
+}
+fn clean_save(mut input: SaveItem) -> Result<SaveItem, AppError> {
+    input.title = input.title.trim().to_string();
+    input.url = input.url.trim().to_string();
+    let url = Url::parse(&input.url)
+        .map_err(|_| AppError::bad("Enter a complete http or https article URL."))?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || url.username() != ""
+        || url.password().is_some()
+    {
+        return Err(AppError::bad("Enter a complete http or https article URL."));
+    }
+    if input.title.is_empty() || input.title.chars().count() > 300 {
+        return Err(AppError::bad(
+            "Give this saved page a title of up to 300 characters.",
+        ));
+    }
+    input.tags = input
+        .tags
+        .into_iter()
+        .map(|tag| tag.trim().to_string())
+        .filter(|tag| !tag.is_empty())
+        .take(12)
+        .collect();
+    if input.tags.iter().any(|tag| tag.chars().count() > 40) {
+        return Err(AppError::bad("Tags must be 40 characters or fewer."));
+    }
+    Ok(input)
+}
+async fn create_session(
+    State(state): State<Arc<AppState>>,
+) -> Result<(StatusCode, Json<Session>), AppError> {
+    let token = random_token();
+    db::create_account(&state.pool, &token_hash(&token)).await?;
+    Ok((StatusCode::CREATED, Json(Session { token })))
+}
 async fn list_items(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Vec<Item>>, AppError> {
+    let account = account_from_headers(&state, &headers).await?;
     Ok(Json(
         db::list(
             &state.pool,
+            account,
             query.status.as_deref(),
             query.search.as_deref(),
         )
         .await?,
     ))
 }
+async fn save_item(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(input): Json<SaveItem>,
+) -> Result<(StatusCode, Json<Item>), AppError> {
+    let account = account_from_headers(&state, &headers).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(db::save(&state.pool, account, &clean_save(input)?).await?),
+    ))
+}
 async fn update_item(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Path(id): Path<i64>,
     Json(input): Json<UpdateItem>,
 ) -> Result<Json<Item>, AppError> {
     if input.status.is_none() && input.priority.is_none() {
         return Err(AppError::bad("Choose a status or priority to update."));
     }
+    let account = account_from_headers(&state, &headers).await?;
     Ok(Json(
         db::update(
             &state.pool,
+            account,
             id,
             input.status.as_deref(),
             input.priority.as_deref(),
@@ -255,140 +350,111 @@ async fn update_item(
 }
 async fn delete_item(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
-    db::remove(&state.pool, id).await?;
+    let account = account_from_headers(&state, &headers).await?;
+    db::remove(&state.pool, account, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
-async fn import_feed(
+async fn list_feed_tokens(
     State(state): State<Arc<AppState>>,
-    Json(input): Json<AddFeed>,
-) -> Result<Json<ImportResult>, AppError> {
-    let url = validate_feed_url(&input.url)?;
-    let response = state
-        .client
-        .get(url.as_str())
-        .send()
-        .await?
-        .error_for_status()?;
-    let bytes = response.bytes().await?;
-    if bytes.len() > 3_000_000 {
-        return Err(AppError::bad("That feed is too large (maximum 3 MB)."));
-    }
-    let feed = parser::parse(&bytes[..])
-        .map_err(|_| AppError::bad("That URL did not return a readable RSS or Atom feed."))?;
-    let title = feed
-        .title
-        .as_ref()
-        .map(|v| v.content.trim())
-        .filter(|v| !v.is_empty())
-        .unwrap_or("Untitled feed")
-        .to_string();
-    let feed_id = db::insert_feed(&state.pool, url.as_str(), &title).await?;
-    let mut added = 0;
-    let mut duplicates = 0;
-    for entry in feed.entries.into_iter().take(100) {
-        let link = entry
-            .links
-            .iter()
-            .find(|l| l.rel.as_deref().map_or(true, |r| r == "alternate"))
-            .map(|l| l.href.clone());
-        if let Some(link) = link {
-            let title_text = entry
-                .title
-                .as_ref()
-                .map(|t| t.content.trim())
-                .filter(|t| !t.is_empty())
-                .unwrap_or("Untitled article")
-                .to_string();
-            let summary = entry
-                .summary
-                .as_ref()
-                .map(|s| strip_html(&s.content))
-                .unwrap_or_default();
-            let published_at = entry.published.or(entry.updated).map(|d| d.to_rfc3339());
-            let mut hasher = Sha256::new();
-            hasher.update(&link);
-            hasher.update(&title_text);
-            let item = ParsedItem {
-                title: title_text,
-                url: link,
-                source: title.clone(),
-                summary,
-                published_at,
-                hash: format!("{:x}", hasher.finalize()),
-            };
-            if db::insert_item(&state.pool, feed_id, &item).await? {
-                added += 1;
-            } else {
-                duplicates += 1;
-            }
-        }
-    }
-    Ok(Json(ImportResult {
-        feed_title: title,
-        added,
-        duplicates,
-    }))
+    headers: axum::http::HeaderMap,
+) -> Result<Json<Vec<TokenInfo>>, AppError> {
+    let account = account_from_headers(&state, &headers).await?;
+    Ok(Json(db::list_feed_tokens(&state.pool, account).await?))
 }
-fn validate_feed_url(raw: &str) -> Result<Url, AppError> {
-    let url = Url::parse(raw.trim())
-        .map_err(|_| AppError::bad("Enter a complete http or https feed URL."))?;
-    if !["http", "https"].contains(&url.scheme())
-        || url.host_str().is_none()
-        || url.username() != ""
-        || url.password().is_some()
-    {
-        return Err(AppError::bad("Enter a public http or https feed URL."));
-    }
-    let host = url.host_str().unwrap_or("");
-    let private_ip = host
-        .parse::<std::net::IpAddr>()
-        .map(|ip| match ip {
-            std::net::IpAddr::V4(v4) => {
-                v4.is_loopback() || v4.is_private() || v4.is_unspecified() || v4.is_link_local()
-            }
-            std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
-        })
-        .unwrap_or(false);
-    if host.eq_ignore_ascii_case("localhost") || host.ends_with(".local") || private_ip {
-        return Err(AppError::bad("Private network addresses are not allowed."));
-    }
-    Ok(url)
-}
-fn strip_html(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    let mut inside = false;
-    for c in raw.chars() {
-        match c {
-            '<' => inside = true,
-            '>' => {
-                inside = false;
-                out.push(' ');
-            }
-            _ if !inside => out.push(c),
-            _ => {}
-        }
-    }
-    out.split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+async fn create_feed_token(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(input): Json<CreateToken>,
+) -> Result<(StatusCode, Json<CreatedToken>), AppError> {
+    let account = account_from_headers(&state, &headers).await?;
+    let label = input
+        .label
+        .unwrap_or_else(|| "My feed reader".into())
+        .trim()
         .chars()
-        .take(280)
-        .collect()
+        .take(80)
+        .collect::<String>();
+    if label.is_empty() {
+        return Err(AppError::bad("Name this feed-reader connection."));
+    }
+    let token = random_token();
+    let info = db::create_feed_token(&state.pool, account, &token_hash(&token), &label).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(CreatedToken {
+            id: info.id,
+            label,
+            feed_path: format!("/feed/{token}/rss"),
+            token,
+        }),
+    ))
 }
-async fn export_csv(State(state): State<Arc<AppState>>) -> Result<Response, AppError> {
-    let items = db::list(&state.pool, None, None).await?;
-    let mut csv = String::from("title,source,url,status,priority,published_at,saved_at\n");
+async fn revoke_feed_token(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, AppError> {
+    let account = account_from_headers(&state, &headers).await?;
+    db::revoke_feed_token(&state.pool, account, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn account_from_feed_token(state: &AppState, token: &str) -> Result<i64, AppError> {
+    db::account_for_feed_token(&state.pool, &token_hash(token))
+        .await?
+        .ok_or_else(|| AppError::not_found("This private feed link is unavailable."))
+}
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+async fn render_feed(
+    State(state): State<Arc<AppState>>,
+    Path(token): Path<String>,
+) -> Result<Response, AppError> {
+    let account = account_from_feed_token(&state, &token).await?;
+    let items = db::list(&state.pool, account, Some("queue"), None).await?;
+    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\"><channel><title>RSS Saved Queue</title><description>Private saved reading queue</description><link>https://rss-saved-queue.sociobot.in</link>");
+    for item in items {
+        xml.push_str(&format!("<item><title>{}</title><link>{}</link><guid isPermaLink=\"false\">{}</guid><description>{}</description><pubDate>{}</pubDate></item>", xml_escape(&item.title), xml_escape(&item.url), item.id, xml_escape(&item.tags.join(", ")), xml_escape(&item.saved_at)));
+    }
+    xml.push_str("</channel></rss>");
+    Ok((
+        [(header::CONTENT_TYPE, "application/rss+xml; charset=utf-8")],
+        xml,
+    )
+        .into_response())
+}
+async fn reader_mark_read(
+    State(state): State<Arc<AppState>>,
+    Path((token, id)): Path<(String, i64)>,
+) -> Result<Json<Item>, AppError> {
+    let account = account_from_feed_token(&state, &token).await?;
+    Ok(Json(
+        db::update(&state.pool, account, id, Some("read"), None).await?,
+    ))
+}
+async fn export_csv(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<Response, AppError> {
+    let account = account_from_headers(&state, &headers).await?;
+    let items = db::list(&state.pool, account, None, None).await?;
+    let mut csv = String::from("title,url,tags,status,priority,saved_at\n");
     for item in items {
         csv.push_str(
             &[
                 item.title,
-                item.source,
                 item.url,
+                item.tags.join("; "),
                 item.status,
                 item.priority,
-                item.published_at.unwrap_or_default(),
                 item.saved_at,
             ]
             .iter()
@@ -414,17 +480,155 @@ async fn export_csv(State(state): State<Arc<AppState>>) -> Result<Response, AppE
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn permits_public_https() {
-        assert!(validate_feed_url("https://example.com/feed.xml").is_ok());
+    use axum::{
+        body::{to_bytes, Body},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    async fn test_app() -> Router {
+        let pool = db::connect("sqlite::memory:?cache=shared").await.unwrap();
+        app(Arc::new(AppState {
+            pool,
+            static_dir: "dist".into(),
+        }))
+    }
+    async fn send(app: &Router, request: Request<Body>) -> (StatusCode, String) {
+        let response = app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (status, String::from_utf8(body.to_vec()).unwrap())
+    }
+    async fn session(app: &Router) -> String {
+        let (status, body) = send(
+            app,
+            Request::post("/api/session").body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .into()
+    }
+    fn auth(request: axum::http::request::Builder, token: &str) -> axum::http::request::Builder {
+        request.header(header::AUTHORIZATION, format!("Bearer {token}"))
+    }
+    #[tokio::test]
+    async fn queue_data_is_private_and_requires_device_key() {
+        let app = test_app().await;
+        let alice = session(&app).await;
+        let bob = session(&app).await;
+        let payload =
+            r#"{"title":"Private article","url":"https://example.com/post","tags":["notes"]}"#;
+        let (status, body) = send(
+            &app,
+            auth(Request::post("/api/items"), &alice)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let id = serde_json::from_str::<serde_json::Value>(&body).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        let (status, body) = send(
+            &app,
+            auth(Request::get("/api/items"), &bob)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "[]");
+        let (status, _) = send(
+            &app,
+            auth(Request::patch(format!("/api/items/{id}")), &bob)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"status":"read"}"#))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = send(
+            &app,
+            Request::get("/api/items").body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+    #[tokio::test]
+    async fn private_feed_token_can_mark_read_then_is_revoked() {
+        let app = test_app().await;
+        let key = session(&app).await;
+        let (_, item) = send(
+            &app,
+            auth(Request::post("/api/items"), &key)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"title":"Reader item","url":"https://example.com/reader","tags":[]}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        let id = serde_json::from_str::<serde_json::Value>(&item).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        let (_, token) = send(
+            &app,
+            auth(Request::post("/api/feed-tokens"), &key)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"label":"Reader"}"#))
+                .unwrap(),
+        )
+        .await;
+        let value: serde_json::Value = serde_json::from_str(&token).unwrap();
+        let raw = value["token"].as_str().unwrap();
+        let token_id = value["id"].as_i64().unwrap();
+        let (status, feed) = send(
+            &app,
+            Request::get(format!("/feed/{raw}/rss"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(feed.contains("Reader item"));
+        let (status, _) = send(
+            &app,
+            Request::post(format!("/reader/{raw}/items/{id}/read"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = send(
+            &app,
+            auth(
+                Request::post(format!("/api/feed-tokens/{token_id}/revoke")),
+                &key,
+            )
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, _) = send(
+            &app,
+            Request::get(format!("/feed/{raw}/rss"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
     #[test]
-    fn rejects_private_targets() {
-        assert!(validate_feed_url("http://127.0.0.1/feed").is_err());
-        assert!(validate_feed_url("ftp://example.com/feed").is_err());
-    }
-    #[test]
-    fn removes_markup() {
-        assert_eq!(strip_html("<p>Hello <em>world</em></p>"), "Hello world");
+    fn removes_remote_import_surface_and_rejects_non_web_saved_links() {
+        assert!(clean_save(SaveItem {
+            title: "x".into(),
+            url: "ftp://example.com/a".into(),
+            tags: vec![]
+        })
+        .is_err());
     }
 }

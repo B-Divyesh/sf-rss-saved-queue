@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1
 FROM node:22-alpine AS frontend
 WORKDIR /app
-COPY package.json ./
-RUN npm install --ignore-scripts
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
 COPY index.html vite.config.ts ./
 COPY src ./src
+COPY extension ./extension
 RUN npm run build
 
 FROM rust:1-bookworm AS backend
