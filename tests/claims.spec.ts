@@ -4,8 +4,8 @@ import { readFile } from 'node:fs/promises';
 
 test('@claim:demo-isolation sample mode uses only its ephemeral namespace and resets', async ({ page }) => {
   const realKey = 'real-device-key-must-not-change';
-  const requests: string[] = [];
-  page.on('request', (request) => requests.push(new URL(request.url()).pathname));
+  const requests: Array<{ path: string; authorization?: string }> = [];
+  page.on('request', (request) => requests.push({ path: new URL(request.url()).pathname, authorization: request.headers().authorization }));
   await page.goto('/');
   await page.evaluate(([key, value]) => localStorage.setItem(key, value), ['rss-saved-queue:device-key', realKey]);
   await page.getByRole('link', { name: 'Try it with sample data' }).click();
@@ -14,15 +14,37 @@ test('@claim:demo-isolation sample mode uses only its ephemeral namespace and re
   await expect(page.getByRole('heading', { name: '2 links in queue' })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('rss-saved-queue:device-key'))).toBe(realKey);
   expect(await page.evaluate(() => Object.keys(sessionStorage))).toEqual(expect.arrayContaining(['demo:rss-saved-queue:workspace', 'demo:rss-saved-queue:feed']));
-  expect(requests.some((path) => path === '/api/session' || path === '/api/items')).toBeFalsy();
+  expect(requests.some(({ path }) => path === '/api/session' || path === '/api/items')).toBeFalsy();
+  expect(requests.filter(({ path }) => path.startsWith('/api/demo/')).every(({ authorization }) => authorization === undefined)).toBeTruthy();
+
+  const sample = await page.evaluate(async () => {
+    const key = sessionStorage.getItem('demo:rss-saved-queue:workspace') || '';
+    const response = await fetch('/api/demo/items', { headers: { 'X-Demo-Workspace': key } });
+    return response.json();
+  });
+  expect(sample).toEqual(expect.arrayContaining([
+    expect.objectContaining({ priority: 'next', status: 'queue' }),
+    expect.objectContaining({ priority: 'soon', status: 'queue' }),
+    expect.objectContaining({ priority: 'later', status: 'read' })
+  ]));
+  const sampleFeed = await page.evaluate(() => sessionStorage.getItem('demo:rss-saved-queue:feed') || '');
+  const feedResponse = await page.request.get(sampleFeed);
+  expect((await feedResponse.text()).match(/<item>/g)).toHaveLength(2);
 
   await page.getByRole('button', { name: 'Mark A field guide to calmer web typography read' }).click();
   await expect(page.getByRole('heading', { name: '1 link in queue' })).toBeVisible();
   await page.getByRole('button', { name: 'Reset demo' }).click();
   await expect(page.getByRole('heading', { name: '2 links in queue' })).toBeVisible();
+  const resetWorkspace = await page.evaluate(() => sessionStorage.getItem('demo:rss-saved-queue:workspace'));
+  await page.getByRole('link', { name: 'Start for real' }).click();
+  await expect(page).toHaveURL('/');
+  await expect(page.getByText('Demo — sample data, nothing is saved')).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem('demo:rss-saved-queue:workspace'))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem('rss-saved-queue:device-key'))).toBe(realKey);
+  await expect.poll(async () => (await page.request.get('/api/demo/items', { headers: { 'X-Demo-Workspace': resetWorkspace || '' } })).status()).toBe(401);
 });
 
-test('@claim:saved-metadata-no-fetch stores entered fields without requesting the saved link', async ({ page }) => {
+test('@claim:saved-metadata-no-fetch stores entered fields and queue choices without fetching or importing', async ({ page }) => {
   const requests: string[] = [];
   page.on('request', (request) => requests.push(request.url()));
   await page.goto('/demo');
@@ -33,6 +55,8 @@ test('@claim:saved-metadata-no-fetch stores entered fields without requesting th
   await page.getByRole('button', { name: 'Save link' }).click();
   await expect(page.getByRole('heading', { name: 'A test link kept as metadata' })).toBeVisible();
   expect(requests.some((url) => url.startsWith('https://no-fetch.invalid'))).toBeFalsy();
+  await page.getByLabel('Priority for A test link kept as metadata').selectOption('later');
+  await page.getByRole('button', { name: 'Mark A test link kept as metadata read' }).click();
   const saved = await page.evaluate(async () => {
     const key = sessionStorage.getItem('demo:rss-saved-queue:workspace') || '';
     const response = await fetch('/api/demo/items', { headers: { 'X-Demo-Workspace': key } });
@@ -43,10 +67,11 @@ test('@claim:saved-metadata-no-fetch stores entered fields without requesting th
       title: 'A test link kept as metadata',
       url: 'https://no-fetch.invalid/private-article',
       tags: ['research', 'later'],
-      status: 'queue',
-      priority: 'next'
+      status: 'read',
+      priority: 'later'
     })
   ]));
+  expect((await page.request.post('/api/feeds', { data: { url: 'https://example.com/feed.xml' } })).status()).toBe(404);
 });
 
 test('@claim:csv-export exports one CSV row per saved link', async ({ page }) => {
@@ -76,9 +101,12 @@ test('@claim:rss-feed-revocation creates a usable RSS link and revokes it', asyn
   const liveFeed = await page.request.get(feedUrl);
   expect(liveFeed.status()).toBe(200);
   expect(liveFeed.headers()['content-type']).toContain('application/rss+xml');
+  expect(liveFeed.headers()['cache-control']).toBe('no-store');
   const xml = await liveFeed.text();
   expect(xml).toContain('A field guide to calmer web typography');
   expect(xml).not.toContain('Keep up with the web using private RSS');
+  expect(xml.match(/<item>/g)).toHaveLength(2);
+  for (const value of xml.matchAll(/<pubDate>([^<]+)<\/pubDate>/g)) expect(Number.isNaN(Date.parse(value[1]))).toBeFalsy();
 
   page.on('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Revoke RSS link' }).last().click();
@@ -124,8 +152,16 @@ test('@claim:free-access the sample and core controls require no account or paym
   const requests: string[] = [];
   page.on('request', (request) => requests.push(request.url()));
   await page.goto('/demo');
-  await expect(page.getByRole('button', { name: 'Save a link' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Create private RSS link' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Export CSV' })).toBeVisible();
+  await page.getByRole('button', { name: 'Save a link' }).click();
+  await page.getByLabel('Link title').fill('Free queue proof');
+  await page.getByLabel('Web link').fill('https://example.com/free-proof');
+  await page.getByRole('button', { name: 'Save link' }).click();
+  await expect(page.getByRole('heading', { name: 'Free queue proof' })).toBeVisible();
+  await page.getByRole('button', { name: 'Create private RSS link' }).click();
+  await page.getByRole('button', { name: 'Create RSS feed link' }).click();
+  await expect(page.getByText('Private RSS link created. Copy it now.')).toBeVisible();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  await downloadPromise;
   expect(requests.some((url) => /checkout|billing|login|oauth/i.test(url))).toBeFalsy();
 });

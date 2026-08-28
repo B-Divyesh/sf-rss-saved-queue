@@ -69,3 +69,28 @@ for (const route of ['/demo', '/privacy', '/terms', '/not-a-route']) {
     expect(results.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact || ''))).toEqual([]);
   });
 }
+
+test('extension pages have landmarks, designed focus, and 44px controls', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'chrome', {
+      value: {
+        tabs: { query: async () => [{ title: 'Example', url: 'https://example.com' }] },
+        storage: { local: { get: async (defaults: object) => defaults, set: async () => undefined } },
+        permissions: { contains: async () => true, request: async () => true }
+      },
+      configurable: true
+    });
+  });
+  for (const route of ['/extension/popup.html', '/extension/options.html']) {
+    await page.goto(route);
+    await expect(page.locator('main')).toHaveCount(1);
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact || '')), route).toEqual([]);
+    const undersized = await page.locator('button:visible, input:visible').evaluateAll((elements) => elements
+      .map((element) => ({ tag: element.tagName, box: element.getBoundingClientRect().toJSON() }))
+      .filter(({ box }) => box.width < 44 || box.height < 44));
+    expect(undersized, route).toEqual([]);
+    await page.locator('input').first().focus();
+    expect(await page.locator('input').first().evaluate((element) => getComputedStyle(element).outlineWidth)).toBe('3px');
+  }
+});

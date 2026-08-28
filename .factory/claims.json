@@ -4,14 +4,14 @@
     "claim": "Demo changes stay in a separate ephemeral workspace and never touch a real queue.",
     "where": "landing action, demo banner, README, .factory/demo.md",
     "test": "npm run test:browser -- --grep @claim:demo-isolation",
-    "sandbox": "fresh browser context with a sentinel real device key; enter ?demo=1, mutate and reset; assert only /api/demo routes and demo: session storage are used"
+    "sandbox": "fresh browser context with a sentinel real device key; enter demo, inspect seeded states and RSS, mutate, reset, exit, and prove the demo workspace is destroyed without changing the real key"
   },
   {
     "id": "saved-metadata-no-fetch",
-    "claim": "The queue stores entered link metadata and does not fetch link contents or import public feeds.",
+    "claim": "The queue stores entered link metadata, priority, and state without fetching link contents or importing public feeds.",
     "where": "landing facts, save form, privacy page, README",
     "test": "npm run test:browser -- --grep @claim:saved-metadata-no-fetch",
-    "sandbox": "fresh /demo tenant; save an unreachable external URL; assert no request reaches it and stored title, URL, tags, state, and priority match"
+    "sandbox": "fresh /demo tenant; save an unreachable URL, change priority and state, assert every stored field, assert no request reaches it, and assert the removed import route is 404"
   },
   {
     "id": "csv-export",
@@ -25,7 +25,7 @@
     "claim": "Create a private RSS link for queued links and revoke it later.",
     "where": "How it works, RSS panel, README",
     "test": "npm run test:browser -- --grep @claim:rss-feed-revocation",
-    "sandbox": "fresh /demo tenant; create link, fetch RSS and inspect queued content, revoke, then assert the same URL returns 404"
+    "sandbox": "fresh /demo tenant; create link, fetch RSS, assert two queued items, valid dates and no-store caching, revoke, then assert the same URL returns 404"
   },
   {
     "id": "device-isolation",
@@ -46,14 +46,13 @@
     "claim": "The included browser extension saves the active tab title, link, and entered tags.",
     "where": "RSS panel, README",
     "test": "npm run test:browser -- --grep @claim:extension-save",
-    "sandbox": "inspect the shipped MV3 manifest and popup implementation; assert activeTab access, exact-origin permission flow, payload fields, and authenticated save endpoint"
+    "sandbox": "run the shipped popup and settings pages with recorded browser/API fixtures; assert active-tab prefill, title/link/tags payload, bearer key, exact-origin permission, and saved settings"
   },
   {
     "id": "free-access",
     "claim": "The queue is free to use and requires no account or payment.",
     "where": "landing facts, README",
     "test": "npm run test:browser -- --grep @claim:free-access",
-    "sandbox": "fresh /demo tenant; assert save, RSS, and CSV controls work without login, checkout, billing, or payment requests"
+    "sandbox": "fresh /demo tenant; complete save, RSS creation, and CSV download; assert no login, checkout, billing, or payment request occurs"
   }
 ]
-

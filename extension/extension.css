@@ -1,0 +1,39 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #f5f0e7;
+  color: #25231f;
+  font: 16px/1.5 system-ui, sans-serif;
+}
+body.popup { width: 330px; }
+main { padding: 16px; }
+.options main { max-width: 580px; margin: 32px auto; }
+h1 { margin: 0 0 12px; font: 600 22px Georgia, serif; }
+.options h1 { font-size: 32px; }
+label { display: block; margin-top: 10px; font-size: 14px; font-weight: 700; }
+.options label { margin-top: 16px; font-size: 16px; }
+input {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px;
+  border: 1px solid #25231f;
+  background: #fffdf8;
+  color: #25231f;
+  font: inherit;
+}
+button {
+  min-height: 44px;
+  margin-top: 16px;
+  padding: 0 16px;
+  border: 0;
+  background: #a83222;
+  color: #fffaf3;
+  font: inherit;
+  font-weight: 700;
+}
+.popup button { width: 100%; }
+.options button { margin-top: 18px; background: #25231f; color: #f5f0e7; }
+button:focus-visible, input:focus-visible { outline: 3px solid #075f68; outline-offset: 2px; }
+p { line-height: 1.4; }
+.popup p { font-size: 13px; }
+.status { min-height: 20px; color: #721c14; font-weight: 700; }

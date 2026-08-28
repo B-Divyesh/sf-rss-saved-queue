@@ -29,7 +29,9 @@ use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorError,
     GovernorLayer,
 };
-use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
+use tower_http::{
+    compression::CompressionLayer, services::ServeDir, set_header::SetResponseHeaderLayer,
+};
 use tracing::{error, info};
 use url::Url;
 
@@ -174,8 +176,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .json()
         .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "info".into()))
         .init();
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:///data/rss-saved-queue.db?mode=rwc".into());
+    let supplied_database = env::var("DATABASE_URL").ok();
+    let database_source = if supplied_database.is_some() {
+        "supplied"
+    } else {
+        "generated default"
+    };
+    let database_url =
+        supplied_database.unwrap_or_else(|| "sqlite:///data/rss-saved-queue.db?mode=rwc".into());
     if let Some(path) = database_url
         .strip_prefix("sqlite://")
         .and_then(|v| v.split('?').next())
@@ -187,9 +195,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tokio::fs::create_dir_all(parent).await?;
         }
     }
+    let supplied_static_dir = env::var("STATIC_DIR").ok();
+    let static_dir_source = if supplied_static_dir.is_some() {
+        "supplied"
+    } else {
+        "generated default"
+    };
     let state = Arc::new(AppState {
         pool: db::connect(&database_url).await?,
-        static_dir: env::var("STATIC_DIR").unwrap_or_else(|_| "dist".into()),
+        static_dir: supplied_static_dir.unwrap_or_else(|| "dist".into()),
         demos: Arc::new(RwLock::new(HashMap::new())),
     });
     let port = env::var("PORT")
@@ -200,7 +214,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(
         port,
         build = BUILD_SHA,
-        database = "generated default or supplied override",
+        database = database_source,
+        static_dir = static_dir_source,
         "rss saved queue listening"
     );
     axum::serve(
@@ -303,6 +318,7 @@ fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health))
         .merge(limited)
+        .layer(CompressionLayer::new())
         .layer(middleware::from_fn(cache_headers))
         .layer(SetResponseHeaderLayer::overriding(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff")))
         .layer(SetResponseHeaderLayer::overriding(header::REFERRER_POLICY, HeaderValue::from_static("same-origin")))
@@ -462,13 +478,13 @@ fn clean_save(mut input: SaveItem) -> Result<SaveItem, AppError> {
     input.title = input.title.trim().to_string();
     input.url = input.url.trim().to_string();
     let url = Url::parse(&input.url)
-        .map_err(|_| AppError::bad("Enter a complete http or https article URL."))?;
+        .map_err(|_| AppError::bad("Enter a complete http or https web link."))?;
     if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || url.username() != ""
         || url.password().is_some()
     {
-        return Err(AppError::bad("Enter a complete http or https article URL."));
+        return Err(AppError::bad("Enter a complete http or https web link."));
     }
     if input.title.is_empty() || input.title.chars().count() > 300 {
         return Err(AppError::bad(
@@ -1373,5 +1389,36 @@ mod tests {
         )
         .await;
         assert_eq!(other_client.status(), StatusCode::CREATED);
+    }
+    #[tokio::test]
+    async fn private_responses_are_not_cached_and_text_can_be_compressed() {
+        let app = test_app().await;
+        let (_, demo) = send(
+            &app,
+            Request::post("/api/demo/session")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let demo_key = serde_json::from_str::<serde_json::Value>(&demo).unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let response = send_response(
+            &app,
+            Request::get("/api/demo/items")
+                .header("x-demo-workspace", demo_key)
+                .header(header::ACCEPT_ENCODING, "gzip")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(response.headers()[header::CONTENT_ENCODING], "gzip");
+        assert_eq!(
+            response.headers()["strict-transport-security"],
+            "max-age=63072000; includeSubDomains; preload"
+        );
     }
 }

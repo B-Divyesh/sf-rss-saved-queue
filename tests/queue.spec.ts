@@ -19,7 +19,7 @@ test('a validation error remains accessible and explains recovery', async ({ pag
   await page.getByLabel('Link title').fill('Bad link');
   await page.getByLabel('Web link').fill('ftp://example.com/nope');
   await page.getByRole('button', { name: 'Save link' }).click();
-  await expect(page.getByText(/complete http or https article URL/i)).toBeVisible();
+  await expect(page.getByText(/complete http or https web link/i)).toBeVisible();
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
 });
@@ -31,7 +31,7 @@ test('dark save sheet has no serious accessibility violations', async ({ page })
   await page.getByLabel('Link title').fill('Bad link');
   await page.getByLabel('Web link').fill('ftp://example.com/nope');
   await page.getByRole('button', { name: 'Save link' }).click();
-  await expect(page.getByText(/complete http or https article URL/i)).toBeVisible();
+  await expect(page.getByText(/complete http or https web link/i)).toBeVisible();
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
 });
