@@ -70,12 +70,22 @@ checks confirm self-only CSP; `nosniff`, DENY framing, same-origin referrer,
 Permissions-Policy; `no-store` for API/health, `no-cache` HTML, and immutable
 hashed-asset caching. There are no trackers, external fonts, or remote scripts.
 
-The expected Docker source-digest build identity is `d5160be55d9ab20a` (the
-Dockerfile's hash over `Cargo.toml`, `Cargo.lock`, migrations, and Rust source).
 Docker and Podman are unavailable in this worker, so exact local image creation
-was not possible; the locked production binary was built successfully. The
-container deployment uses the supplied root `Dockerfile`, port 8080, and needs
-the deployment identity and live URL checks recorded after rollout.
+was not possible; the locked production binary was built successfully. Cloud
+deployment completed through the supplied container work order on 2026-08-28:
+ACR image `sf-rss-saved-queue:c3aae35f03ea`, root `Dockerfile`, port 8080, and
+the public TLS URL `https://rss-saved-queue.sociobot.in` all returned success.
+Live `/health` is `{"status":"ok","build":"d5160be55d9ab20a"}`, matching
+the Dockerfile source digest over `Cargo.toml`, `Cargo.lock`, migrations, and
+Rust source.
+
+Live `/opt/fleet/lib/verify-url.sh` passed at 695 ms with no console/page
+errors and the same document/a11y basics. A live dark invalid-save axe check
+reported zero serious/critical violations; 390 px had no overflow and keyboard
+Tab focused the skip link. Live request smoke observed only the product origin,
+zero cookies, zero service workers, and zero errors. A disposable live private
+item/feed test confirmed escaped XML, RFC 2822 `pubDate`, reader mark-read
+`200`, then cleanup delete `204` and token revoke `204`.
 
 ## Run / deploy
 
@@ -92,5 +102,5 @@ Deploy with the factory container work order: root `Dockerfile`, external port
 
 No functional product gap is known. This is intentionally not a PWA: saved
 queue data is private server state, and offline startup displays a retry action
-instead of presenting stale data. Local Docker/Podman was unavailable; cloud
-container build and live identity validation remain the final deployment step.
+instead of presenting stale data. Local Docker/Podman was unavailable, but the
+factory cloud container build and live identity validation passed.
