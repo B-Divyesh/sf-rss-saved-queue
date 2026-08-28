@@ -1,4 +1,4 @@
-# Polish round 2 handoff — ready for deployment
+# Polish round 2 handoff — deployed
 
 Repair commit: `74e038e09653ce9163654fc089c606c1b33187bc`.
 
@@ -28,9 +28,21 @@ The built JavaScript is 66.87 kB (24.56 kB gzip) and CSS is 13.71 kB (3.65 kB gz
 
 ## Deployment and live evidence
 
-Run `/opt/fleet/lib/deploy-container.sh rss-saved-queue /work/repo Dockerfile 8080`.
-After deployment, run `verify-url.sh`, axe, cold desktop/mobile checks, and the live route/link crawl.
-Record the live build SHA and screenshots here before final handoff.
+Deployed through `/opt/fleet/lib/deploy-container.sh` on 28 August 2026 UTC.
+The ACR build and Container App update completed successfully for `7ea46c6065e6`.
+
+- Cold `verify-url.sh https://rss-saved-queue.sociobot.in` passed in 625 ms: title, `lang=en`, one h1,
+  main, no missing image alt text, no unlabeled buttons, and no console/page errors.
+- Screenshots: `.factory/evidence/polish-2-live/screenshot-desktop.png`,
+  `.factory/evidence/polish-2-live/screenshot-mobile.png`, and
+  `.factory/evidence/polish-2-live/live-demo-mobile.png`.
+- Cold mobile axe had zero serious/critical issues on `/`, `/demo`, `/privacy`, `/terms`, `/not-a-route`,
+  and `/extension-setup`. The first sample link began at y=729.09 in a 390 × 844 viewport.
+- `/`, `/demo`, `/privacy`, `/terms`, and `/extension-setup` returned 200 with correct route titles.
+  `/not-a-route` returned the styled page with HTTP 404. `?demo=1` showed the persistent banner,
+  Reset demo, and Start for real.
+- Both queued self-hosted samples returned 200. `/extension/` returned 200 and `/extension.zip`
+  returned 200 `application/zip`; the live setup page generated a non-empty device key.
 
 ## Known gap
 
