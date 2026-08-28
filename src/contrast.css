@@ -3,3 +3,23 @@ html[data-theme='light'] .meta,
 html[data-theme='light'] .optional {
   color: #29483d;
 }
+
+/* The save sheet keeps an ochre card in both themes, so it owns its ink
+   tokens instead of inheriting dark-mode paper colours onto a light card. */
+.feed-sheet {
+  --sheet-ink: #25231f;
+  --sheet-muted: #3f3b34;
+  --sheet-sage: #29483d;
+  --sheet-surface: #fffdf8;
+  color: var(--sheet-ink);
+  border-color: var(--sheet-ink);
+}
+
+.feed-sheet p { color: var(--sheet-muted); }
+.feed-sheet .eyebrow { color: var(--sheet-sage); }
+.feed-sheet .optional { color: var(--sheet-muted); }
+.feed-sheet input {
+  border-color: var(--sheet-ink);
+  background: var(--sheet-surface);
+  color: var(--sheet-ink);
+}

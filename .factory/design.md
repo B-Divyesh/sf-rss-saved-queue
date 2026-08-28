@@ -9,6 +9,9 @@ purpose of making an overwhelming stream feel finite and chosen.
 bookmark ochre `#e2b94f`, and binding-cloth sage `#29483d`. Dark mode is charcoal
 `#1d201e` with warm ink. These are tokens in `src/app.css`; the darker coral and
 sage preserve 4.5:1-or-better contrast for errors and small ledger labels.
+The ochre save sheet is deliberately a light card in both treatments, so its
+own ink `#25231f`, muted copy `#3f3b34`, and sage label `#29483d` are scoped in
+`src/contrast.css`; it never inherits low-contrast dark-paper tokens.
 
 **Type:** self-hosted-free system typography: the platform UI sans makes controls
 plain and quick, while Georgia provides a familiar editorial voice for reading titles.

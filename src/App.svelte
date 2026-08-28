@@ -30,7 +30,7 @@
   $: localStorage.setItem('rss-saved-queue:theme', dark ? 'dark' : 'light');
   $: extensionEndpoint = location.origin;
 
-  onMount(async () => { if (!legalPage) { await ensureSession(); await load(); } });
+  onMount(() => { if (!legalPage) void load(); });
   async function ensureSession() {
     deviceKey = localStorage.getItem(sessionKey) || '';
     if (!deviceKey) {
@@ -50,7 +50,7 @@
   }
   async function load() {
     loading = true; error = '';
-    try { items = await request('/api/items'); tokens = await request('/api/feed-tokens'); }
+    try { await ensureSession(); items = await request('/api/items'); tokens = await request('/api/feed-tokens'); }
     catch (e) { error = e instanceof Error ? e.message : 'The queue is unavailable.'; }
     finally { loading = false; }
   }
@@ -98,7 +98,7 @@
     <form onsubmit={(event) => { event.preventDefault(); savePage(); }}>
       <label for="page-title">Page title</label><input id="page-title" bind:value={title} required maxlength="300" placeholder="A good read for later" />
       <label for="page-url">Page address</label><input id="page-url" type="url" bind:value={pageUrl} required placeholder="https://example.com/article" />
-      <label for="page-tags">Tags <span class="optional">optional, comma separated</span></label><div class="feed-form"><input id="page-tags" bind:value={tags} placeholder="design, long read" /><button class="button button-coral" disabled={saving}>{saving ? 'Saving…' : 'Save page'}</button></div>
+      <label for="page-tags">Tags <span class="optional">optional, comma separated, up to 12</span></label><div class="feed-form"><input id="page-tags" bind:value={tags} placeholder="design, long read" /><button class="button button-coral" disabled={saving}>{saving ? 'Saving…' : 'Save page'}</button></div>
     </form>
   </section>
 {/if}

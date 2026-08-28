@@ -16,6 +16,7 @@ use sqlx::SqlitePool;
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 use thiserror::Error;
 use tokio::signal;
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 use tracing::{error, info};
 use url::Url;
@@ -56,7 +57,7 @@ struct UpdateItem {
     status: Option<String>,
     priority: Option<String>,
 }
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct SaveItem {
     title: String,
     url: String,
@@ -165,24 +166,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(8080);
     let listener = tokio::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], port))).await?;
     info!(port, build = BUILD_SHA, "rss saved queue listening");
-    axum::serve(listener, app(state))
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app(state).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
     Ok(())
 }
 
 fn app(state: Arc<AppState>) -> Router {
     let static_dir = state.static_dir.clone();
+    // Session creation persists an account. Keep anonymous creation tight and
+    // give ordinary state changes their own, practical per-peer bucket.
+    let session_limit = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(6)
+            .burst_size(8)
+            .finish()
+            .expect("valid session rate-limit configuration"),
+    );
+    let mutation_limit = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(2)
+            .burst_size(24)
+            .finish()
+            .expect("valid mutation rate-limit configuration"),
+    );
     Router::new()
         .route("/health", get(health))
-        .route("/api/session", post(create_session))
-        .route("/api/items", get(list_items).post(save_item))
-        .route("/api/items/:id", patch(update_item).delete(delete_item))
+        .route("/api/session", post(create_session).layer(GovernorLayer { config: session_limit }))
+        .route("/api/items", get(list_items))
+        .route("/api/items", post(save_item).layer(GovernorLayer { config: mutation_limit.clone() }))
+        .route("/api/items/:id", patch(update_item).delete(delete_item).layer(GovernorLayer { config: mutation_limit.clone() }))
         .route("/api/export.csv", get(export_csv))
-        .route("/api/feed-tokens", get(list_feed_tokens).post(create_feed_token))
-        .route("/api/feed-tokens/:id/revoke", post(revoke_feed_token))
+        .route("/api/feed-tokens", get(list_feed_tokens))
+        .route("/api/feed-tokens", post(create_feed_token).layer(GovernorLayer { config: mutation_limit.clone() }))
+        .route("/api/feed-tokens/:id/revoke", post(revoke_feed_token).layer(GovernorLayer { config: mutation_limit.clone() }))
         .route("/feed/:token/rss", get(render_feed))
-        .route("/reader/:token/items/:id/read", post(reader_mark_read))
+        .route("/reader/:token/items/:id/read", post(reader_mark_read).layer(GovernorLayer { config: mutation_limit }))
         .route("/privacy", get(index_page)).route("/terms", get(index_page))
         .with_state(state)
         .fallback_service(ServeDir::new(static_dir).append_index_html_on_directories(true))
@@ -281,16 +303,19 @@ fn clean_save(mut input: SaveItem) -> Result<SaveItem, AppError> {
             "Give this saved page a title of up to 300 characters.",
         ));
     }
-    input.tags = input
+    let tags = input
         .tags
         .into_iter()
         .map(|tag| tag.trim().to_string())
         .filter(|tag| !tag.is_empty())
-        .take(12)
-        .collect();
-    if input.tags.iter().any(|tag| tag.chars().count() > 40) {
+        .collect::<Vec<_>>();
+    if tags.len() > 12 {
+        return Err(AppError::bad("Use up to 12 tags per saved page."));
+    }
+    if tags.iter().any(|tag| tag.chars().count() > 40) {
         return Err(AppError::bad("Tags must be 40 characters or fewer."));
     }
+    input.tags = tags;
     Ok(input)
 }
 async fn create_session(
@@ -414,6 +439,11 @@ fn xml_escape(value: &str) -> String {
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
 }
+fn rss_pub_date(saved_at: &str) -> Result<String, AppError> {
+    chrono::DateTime::parse_from_rfc3339(saved_at)
+        .map(|date| date.to_rfc2822())
+        .map_err(|_| AppError::internal("Saved date could not be read."))
+}
 async fn render_feed(
     State(state): State<Arc<AppState>>,
     Path(token): Path<String>,
@@ -422,7 +452,7 @@ async fn render_feed(
     let items = db::list(&state.pool, account, Some("queue"), None).await?;
     let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\"><channel><title>RSS Saved Queue</title><description>Private saved reading queue</description><link>https://rss-saved-queue.sociobot.in</link>");
     for item in items {
-        xml.push_str(&format!("<item><title>{}</title><link>{}</link><guid isPermaLink=\"false\">{}</guid><description>{}</description><pubDate>{}</pubDate></item>", xml_escape(&item.title), xml_escape(&item.url), item.id, xml_escape(&item.tags.join(", ")), xml_escape(&item.saved_at)));
+        xml.push_str(&format!("<item><title>{}</title><link>{}</link><guid isPermaLink=\"false\">{}</guid><description>{}</description><pubDate>{}</pubDate></item>", xml_escape(&item.title), xml_escape(&item.url), item.id, xml_escape(&item.tags.join(", ")), xml_escape(&rss_pub_date(&item.saved_at)?)));
     }
     xml.push_str("</channel></rss>");
     Ok((
@@ -482,6 +512,7 @@ mod tests {
     use super::*;
     use axum::{
         body::{to_bytes, Body},
+        extract::connect_info::ConnectInfo,
         http::Request,
     };
     use tower::ServiceExt;
@@ -492,7 +523,10 @@ mod tests {
             static_dir: "dist".into(),
         }))
     }
-    async fn send(app: &Router, request: Request<Body>) -> (StatusCode, String) {
+    async fn send(app: &Router, mut request: Request<Body>) -> (StatusCode, String) {
+        request.extensions_mut().insert(ConnectInfo(
+            "127.0.0.1:41000".parse::<SocketAddr>().unwrap(),
+        ));
         let response = app.clone().oneshot(request).await.unwrap();
         let status = response.status();
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -594,6 +628,14 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         assert!(feed.contains("Reader item"));
+        let pub_date = feed
+            .split("<pubDate>")
+            .nth(1)
+            .unwrap()
+            .split("</pubDate>")
+            .next()
+            .unwrap();
+        assert!(chrono::DateTime::parse_from_rfc2822(pub_date).is_ok());
         let (status, _) = send(
             &app,
             Request::post(format!("/reader/{raw}/items/{id}/read"))
@@ -630,5 +672,35 @@ mod tests {
             tags: vec![]
         })
         .is_err());
+    }
+    #[test]
+    fn rejects_over_limit_tags_instead_of_silently_dropping_them() {
+        let error = clean_save(SaveItem {
+            title: "x".into(),
+            url: "https://example.com/a".into(),
+            tags: (1..=13).map(|number| format!("tag-{number}")).collect(),
+        })
+        .unwrap_err();
+        assert!(
+            matches!(error, AppError::Bad(message) if message == "Use up to 12 tags per saved page.")
+        );
+    }
+    #[tokio::test]
+    async fn session_creation_is_rate_limited_by_peer_address() {
+        let app = test_app().await;
+        for _ in 0..8 {
+            let (status, _) = send(
+                &app,
+                Request::post("/api/session").body(Body::empty()).unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+        let (status, _) = send(
+            &app,
+            Request::post("/api/session").body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
     }
 }

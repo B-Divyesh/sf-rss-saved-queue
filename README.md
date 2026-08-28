@@ -17,11 +17,12 @@ Open the app, save a page, then choose **Connect reader** to create a private
 RSS link. The newly generated link is shown exactly once; paste it into your
 reader and revoke it from the app whenever needed.
 
-To use the browser extension, download `/extension/` from a running instance
-or load the repository's `extension/` directory as an unpacked Manifest V3
-extension. In the extension options, paste the service URL and device key shown
-under **Connect reader**. The extension saves the active tab's title and URL,
-plus tags you enter.
+To use the browser extension, load the repository's `extension/` directory as
+an unpacked Manifest V3 extension. In its options, paste the service URL and
+device key shown under **Connect reader**. Chrome then asks you to allow that
+exact service origin, so the extension can work with this hosted instance or a
+self-hosted one without gaining automatic access to every site. It saves the
+active tab's title and URL, plus tags you enter.
 
 ## Run locally
 
