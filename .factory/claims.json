@@ -1,7 +1,7 @@
 [
   {
     "id": "demo-isolation",
-    "claim": "Demo changes stay in a separate ephemeral workspace and never touch a real queue.",
+    "claim": "Demo changes stay in a separate memory-only workspace and never touch a real queue.",
     "where": "landing action, demo banner, README, .factory/demo.md",
     "test": "npm run test:browser -- --grep @claim:demo-isolation",
     "sandbox": "fresh browser context with a sentinel real device key; enter demo, inspect seeded states and RSS, mutate, reset, exit, and prove the demo workspace is destroyed without changing the real key"
@@ -29,10 +29,10 @@
   },
   {
     "id": "device-isolation",
-    "claim": "Each device key opens only its own queue.",
+    "claim": "Each device key opens only its own queue, and the server stores only a one-way hash of that key.",
     "where": "landing facts, privacy page, README",
     "test": "npm run test:browser -- --grep @claim:device-isolation",
-    "sandbox": "create two fresh real sessions; save through the first; assert the second cannot list or update the item"
+    "sandbox": "create two fresh real sessions; save through the first; assert the second cannot list or update the item and raw device keys are absent while their hashes are present in SQLite"
   },
   {
     "id": "same-origin-privacy",
@@ -43,10 +43,10 @@
   },
   {
     "id": "extension-save",
-    "claim": "The included browser extension saves the active tab title, link, and entered tags.",
+    "claim": "The included browser extension downloads from this site and saves the active tab title, link, and entered tags.",
     "where": "RSS panel, README",
     "test": "npm run test:browser -- --grep @claim:extension-save",
-    "sandbox": "run the shipped popup and settings pages with recorded browser/API fixtures; assert active-tab prefill, title/link/tags payload, bearer key, exact-origin permission, and saved settings"
+    "sandbox": "open the live setup page and package, then run the shipped popup and settings pages with recorded browser/API fixtures; assert active-tab prefill, title/link/tags payload, bearer key, exact-origin permission, and saved settings"
   },
   {
     "id": "free-access",
@@ -54,5 +54,19 @@
     "where": "landing facts, README",
     "test": "npm run test:browser -- --grep @claim:free-access",
     "sandbox": "fresh /demo tenant; complete save, RSS creation, and CSV download; assert no login, checkout, billing, or payment request occurs"
+  },
+  {
+    "id": "internet-connection",
+    "claim": "An internet connection is required to save changes.",
+    "where": "landing facts",
+    "test": "npm run test:browser -- --grep @claim:internet-connection",
+    "sandbox": "fresh /demo page loaded while online; set the browser offline; attempt a save and assert it is not sent and gives reconnect guidance"
+  },
+  {
+    "id": "csv-import",
+    "claim": "Import CSV restores exported links and skips duplicates.",
+    "where": "queue toolbar, README",
+    "test": "npm run test:browser -- --grep @claim:csv-import",
+    "sandbox": "fresh /demo tenant; upload an exported-column CSV, preview it, confirm import, assert state and priority, then re-import and assert duplicate handling"
   }
 ]

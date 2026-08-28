@@ -72,4 +72,11 @@ test('@claim:extension-save the extension requests one service origin and saves 
   await expect(page.getByRole('status')).toHaveText('Settings and this service permission are saved locally.');
   expect(await page.evaluate(() => window.__permissionRequest)).toBe('https://self-host.example:8443/*');
   expect(await page.evaluate(() => window.__savedSettings)).toEqual({ endpoint: 'https://self-host.example:8443', deviceKey: 'new-device-key' });
+
+  await page.goto('/extension-setup');
+  await expect(page.getByRole('link', { name: 'Download extension package' })).toHaveAttribute('href', '/extension.zip');
+  await expect(page.getByLabel('Device key')).not.toHaveValue('');
+  const packageResponse = await page.request.get('/extension.zip');
+  expect(packageResponse.status()).toBe(200);
+  expect(packageResponse.headers()['content-type']).toContain('application/zip');
 });

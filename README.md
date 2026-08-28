@@ -20,6 +20,7 @@ Save a title, link, and optional tags.
 Set its priority and queue state.
 Create a private RSS link for queued links and revoke it later.
 Export CSV writes one row for every saved link.
+Import CSV restores exported links and skips duplicates.
 
 Each browser keeps a device key for its queue.
 The server stores a one-way hash of that key.
@@ -28,7 +29,8 @@ A second device key cannot open or change the first queue.
 The queue stores entered link metadata.
 It does not fetch link contents or import public feeds.
 
-Load the \`extension/\` folder as an unpacked Chrome extension.
+Open [the extension setup page](https://rss-saved-queue.sociobot.in/extension-setup) to download the package and copy your device key.
+Load the unzipped folder as an unpacked Chrome extension.
 Chrome asks permission for the service URL you enter.
 The extension saves the active tab title, link, and entered tags.
 
@@ -43,7 +45,7 @@ DATABASE_URL='sqlite://rss-saved-queue.db?mode=rwc' STATIC_DIR=dist cargo run
 \`\`\`
 
 Open <http://localhost:8080>.
-Mount \`/data\` in production to keep queues after container replacement.
+Mount \`/data\` in production.
 
 ## Run checks
 
@@ -58,8 +60,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo build --release --locked
 \`\`\`
 
-Every public product promise appears in [\`.factory/claims.json\`](.factory/claims.json).
-Run each listed command from a clean checkout.
+Run each listed claim command from a clean checkout.
 
 ## Deploy the container
 

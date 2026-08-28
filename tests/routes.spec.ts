@@ -62,6 +62,26 @@ test('mobile controls and links meet touch sizing without horizontal overflow', 
   expect(undersized).toEqual([]);
 });
 
+test('mobile demo shows a complete sample link without scrolling', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/demo');
+  const link = page.getByRole('link', { name: /A field guide to calmer web typography/ });
+  await expect(link).toBeVisible();
+  const box = await link.boundingBox();
+  expect(box && box.y + box.height <= 844).toBeTruthy();
+});
+
+test('sample destinations and extension package are available from the live product surface', async ({ page, request }) => {
+  await page.goto('/demo');
+  const hrefs = await page.locator('.article-copy a').evaluateAll((links) => links.map((link) => (link as HTMLAnchorElement).href));
+  for (const href of hrefs) expect((await request.get(href)).status(), href).toBe(200);
+  await page.goto('/extension-setup');
+  await expect(page.getByLabel('Device key')).not.toHaveValue('');
+  const packageResponse = await request.get('/extension.zip');
+  expect(packageResponse.status()).toBe(200);
+  expect(packageResponse.headers()['content-type']).toContain('application/zip');
+});
+
 for (const route of ['/demo', '/privacy', '/terms', '/not-a-route']) {
   test('accessibility has no serious or critical findings on ' + route, async ({ page }) => {
     await page.goto(route);

@@ -95,3 +95,20 @@ Result-naming controls include **Save a link**, **Create private RSS link**, **C
 | Syndication output | private RSS link |
 | Browser credential | device key |
 | Sample environment | demo |
+
+## Polish round 2 additions
+
+| Sentence | Words | Result |
+| --- | ---: | --- |
+| See three saved links and their RSS feed. | 8 | Pass. |
+| An internet connection is required to save changes. | 8 | Claim `internet-connection`. |
+| Review CSV links before adding them. | 7 | Pass. |
+| Only exported link details are read. | 6 | Pass. |
+| Existing title-and-link matches will be skipped. | 6 | Claim `csv-import`. |
+| Download the package, then load it as an unpacked Chrome extension. | 11 | Claim `extension-save`. |
+| This link was not saved because you are offline. | 10 | Pass. |
+| Reconnect, then save it again. | 5 | Pass. |
+
+The landing and README use **link** for each saved entry. A source and test-name
+audit found no visitor-facing use of “article,” “shelf,” “room,” “pieces,” or “line”
+for the queue.

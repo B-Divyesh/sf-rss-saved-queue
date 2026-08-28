@@ -15,5 +15,4 @@ Demo requests use \`/api/demo/*\` and never send the real device key.
 The workspace starts with three realistic links.
 They cover next, soon, and later priorities plus queued and read states.
 A sample private RSS link is ready on first load.
-CSV export, save, state changes, feed creation, and revocation all run inside the workspace.
-
+CSV export, import, save, state changes, feed creation, and revocation all run inside the workspace.

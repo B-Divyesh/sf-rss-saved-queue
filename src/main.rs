@@ -93,6 +93,24 @@ struct SaveItem {
     tags: Vec<String>,
 }
 #[derive(Deserialize)]
+struct ImportItem {
+    title: String,
+    url: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    status: String,
+    priority: String,
+}
+#[derive(Deserialize)]
+struct ImportRequest {
+    items: Vec<ImportItem>,
+}
+#[derive(Serialize)]
+struct ImportResult {
+    added: usize,
+    duplicates: usize,
+}
+#[derive(Deserialize)]
 struct CreateToken {
     label: Option<String>,
 }
@@ -253,6 +271,12 @@ fn app(state: Arc<AppState>) -> Router {
             }),
         )
         .route("/api/export.csv", get(export_csv))
+        .route(
+            "/api/import.csv",
+            post(import_csv).layer(GovernorLayer {
+                config: mutation_limit.clone(),
+            }),
+        )
         .route("/api/feed-tokens", get(list_feed_tokens))
         .route(
             "/api/feed-tokens",
@@ -270,7 +294,7 @@ fn app(state: Arc<AppState>) -> Router {
         .route(
             "/reader/:token/items/:id/read",
             post(reader_mark_read).layer(GovernorLayer {
-                config: mutation_limit,
+                config: mutation_limit.clone(),
             }),
         )
         .route(
@@ -284,6 +308,12 @@ fn app(state: Arc<AppState>) -> Router {
         )
         .route("/api/demo/export.csv", get(export_demo_csv))
         .route(
+            "/api/demo/import.csv",
+            post(import_demo_csv).layer(GovernorLayer {
+                config: mutation_limit.clone(),
+            }),
+        )
+        .route(
             "/api/demo/feed-tokens",
             get(list_demo_feed_tokens).post(create_demo_feed_token),
         )
@@ -296,12 +326,14 @@ fn app(state: Arc<AppState>) -> Router {
         .route("/demo", get(index_page))
         .route("/privacy", get(index_page))
         .route("/terms", get(index_page))
+        .route("/extension-setup", get(index_page))
         .route("/404", get(not_found_page))
         .nest_service("/assets", ServeDir::new(format!("{static_dir}/assets")))
         .nest_service(
             "/extension",
             ServeDir::new(format!("{static_dir}/extension")),
         )
+        .nest_service("/samples", ServeDir::new(format!("{static_dir}/samples")))
         .route("/robots.txt", get(static_text))
         .route("/sitemap.xml", get(static_text))
         .route("/favicon.svg", get(static_text))
@@ -309,6 +341,7 @@ fn app(state: Arc<AppState>) -> Router {
         .route("/apple-touch-icon.png", get(static_bytes))
         .route("/og-card.png", get(static_bytes))
         .route("/og-card.svg", get(static_text))
+        .route("/extension.zip", get(static_bytes))
         .route("/staticwebapp.config.json", get(static_text))
         .fallback(not_found_page)
         .with_state(state)
@@ -442,6 +475,7 @@ async fn static_file(state: &AppState, path: &str, text: bool) -> Result<Respons
         Some("svg") => "image/svg+xml",
         Some("png") => "image/png",
         Some("ico") => "image/x-icon",
+        Some("zip") => "application/zip",
         _ if text => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
     };
@@ -695,6 +729,59 @@ async fn export_csv(
         .into_response())
 }
 
+fn clean_import_item(input: ImportItem) -> Result<(SaveItem, String, String), AppError> {
+    if !["queue", "read", "archived"].contains(&input.status.as_str()) {
+        return Err(AppError::bad(
+            "Each imported link needs a known queue state.",
+        ));
+    }
+    if !["next", "soon", "later"].contains(&input.priority.as_str()) {
+        return Err(AppError::bad("Each imported link needs a known priority."));
+    }
+    Ok((
+        clean_save(SaveItem {
+            title: input.title,
+            url: input.url,
+            tags: input.tags,
+        })?,
+        input.status,
+        input.priority,
+    ))
+}
+
+async fn import_csv(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(input): Json<ImportRequest>,
+) -> Result<Json<ImportResult>, AppError> {
+    if input.items.is_empty() || input.items.len() > 500 {
+        return Err(AppError::bad(
+            "Import between 1 and 500 saved links at a time.",
+        ));
+    }
+    let account = account_from_headers(&state, &headers).await?;
+    let mut added = 0;
+    let mut duplicates = 0;
+    for source in input.items {
+        let (item, status, priority) = clean_import_item(source)?;
+        if db::duplicate_exists(&state.pool, account, &item.title, &item.url).await? {
+            duplicates += 1;
+            continue;
+        }
+        let saved = db::save(&state.pool, account, &item).await?;
+        db::update(
+            &state.pool,
+            account,
+            saved.id,
+            Some(&status),
+            Some(&priority),
+        )
+        .await?;
+        added += 1;
+    }
+    Ok(Json(ImportResult { added, duplicates }))
+}
+
 fn demo_key(headers: &axum::http::HeaderMap) -> Result<&str, AppError> {
     headers
         .get("x-demo-workspace")
@@ -708,7 +795,7 @@ fn sample_items() -> Vec<Item> {
         Item {
             id: 1,
             title: "A field guide to calmer web typography".into(),
-            url: "https://example.com/library/web-typography".into(),
+            url: "https://rss-saved-queue.sociobot.in/samples/web-typography.html".into(),
             tags: vec!["design".into(), "typography".into()],
             saved_at: "2026-08-26T09:30:00+00:00".into(),
             status: "queue".into(),
@@ -717,7 +804,7 @@ fn sample_items() -> Vec<Item> {
         Item {
             id: 2,
             title: "Why a shorter reading list improves recall".into(),
-            url: "https://example.com/notes/reading-and-recall".into(),
+            url: "https://rss-saved-queue.sociobot.in/samples/reading-recall.html".into(),
             tags: vec!["reading".into(), "habits".into()],
             saved_at: "2026-08-24T14:15:00+00:00".into(),
             status: "queue".into(),
@@ -726,7 +813,7 @@ fn sample_items() -> Vec<Item> {
         Item {
             id: 3,
             title: "Keep up with the web using private RSS".into(),
-            url: "https://example.com/guides/private-rss".into(),
+            url: "https://rss-saved-queue.sociobot.in/samples/private-rss.html".into(),
             tags: vec!["rss".into(), "privacy".into()],
             saved_at: "2026-08-21T18:45:00+00:00".into(),
             status: "read".into(),
@@ -1009,6 +1096,54 @@ async fn export_demo_csv(
         csv_for(&workspace.items),
     )
         .into_response())
+}
+
+async fn import_demo_csv(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(input): Json<ImportRequest>,
+) -> Result<Json<ImportResult>, AppError> {
+    if input.items.is_empty() || input.items.len() > 500 {
+        return Err(AppError::bad(
+            "Import between 1 and 500 saved links at a time.",
+        ));
+    }
+    let mut demos = state.demos.write().await;
+    let workspace = demos
+        .get_mut(demo_key(&headers)?)
+        .filter(|workspace| demo_is_active(workspace))
+        .ok_or_else(|| AppError::unauthorized("This demo has ended. Reset it to start again."))?;
+    let mut added = 0;
+    let mut duplicates = 0;
+    for source in input.items {
+        let (item, status, priority) = clean_import_item(source)?;
+        if workspace
+            .items
+            .iter()
+            .any(|saved| saved.title == item.title && saved.url == item.url)
+        {
+            duplicates += 1;
+            continue;
+        }
+        let id = workspace
+            .items
+            .iter()
+            .map(|saved| saved.id)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        workspace.items.push(Item {
+            id,
+            title: item.title,
+            url: item.url,
+            tags: item.tags,
+            saved_at: Utc::now().to_rfc3339(),
+            status,
+            priority,
+        });
+        added += 1;
+    }
+    Ok(Json(ImportResult { added, duplicates }))
 }
 
 fn rss_for(items: &[Item]) -> Result<String, AppError> {

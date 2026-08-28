@@ -93,6 +93,23 @@ pub async fn save(pool: &SqlitePool, account_id: i64, input: &SaveItem) -> Resul
     get(pool, account_id, result.last_insert_rowid()).await
 }
 
+pub async fn duplicate_exists(
+    pool: &SqlitePool,
+    account_id: i64,
+    title: &str,
+    url: &str,
+) -> Result<bool, AppError> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM saved_items WHERE account_id=?1 AND title=?2 AND url=?3",
+    )
+    .bind(account_id)
+    .bind(title)
+    .bind(url)
+    .fetch_one(pool)
+    .await?
+        > 0)
+}
+
 pub async fn get(pool: &SqlitePool, account_id: i64, id: i64) -> Result<Item, AppError> {
     let row = sqlx::query_as::<_, ItemRow>("SELECT id,title,url,tags_json,saved_at,status,priority FROM saved_items WHERE id=?1 AND account_id=?2")
         .bind(id).bind(account_id).fetch_optional(pool).await?;

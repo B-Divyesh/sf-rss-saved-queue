@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 
 test('@claim:demo-isolation sample mode uses only its ephemeral namespace and resets', async ({ page }) => {
   const realKey = 'real-device-key-must-not-change';
@@ -131,7 +131,10 @@ test('@claim:device-isolation one device cannot read or change another queue', a
     data: { status: 'read' }
   });
   expect(bobUpdate.status()).toBe(404);
-  const database = await readFile('/tmp/rss-saved-queue-browser.db');
+  const candidates = (await readdir('/tmp')).filter((name) => name.startsWith('rss-saved-queue-browser-') && name.endsWith('.db'));
+  const databaseName = (await Promise.all(candidates.map(async (name) => ({ name, modified: (await stat('/tmp/' + name)).mtimeMs })))).sort((a, b) => b.modified - a.modified)[0].name;
+  const databasePath = '/tmp/' + databaseName;
+  const database = Buffer.concat([await readFile(databasePath), await readFile(databasePath + '-wal').catch(() => Buffer.alloc(0))]);
   expect(database.includes(Buffer.from(aliceKey))).toBeFalsy();
   expect(database.includes(Buffer.from(bobKey))).toBeFalsy();
   expect(database.includes(Buffer.from(createHash('sha256').update(aliceKey).digest('hex')))).toBeTruthy();
@@ -164,4 +167,31 @@ test('@claim:free-access the sample and core controls require no account or paym
   await page.getByRole('button', { name: 'Export CSV' }).click();
   await downloadPromise;
   expect(requests.some((url) => /checkout|billing|login|oauth/i.test(url))).toBeFalsy();
+});
+
+test('@claim:internet-connection mutations explain that a connection is required', async ({ page }) => {
+  await page.goto('/demo');
+  await page.getByRole('button', { name: 'Save a link' }).click();
+  await page.getByLabel('Link title').fill('Offline link');
+  await page.getByLabel('Web link').fill('https://example.com/offline');
+  await page.context().setOffline(true);
+  await page.getByRole('button', { name: 'Save link' }).click();
+  await expect(page.getByText('This link was not saved because you are offline. Reconnect, then save it again.')).toBeVisible();
+  await page.context().setOffline(false);
+});
+
+test('@claim:csv-import imports an exported CSV with state and skips duplicates', async ({ page }) => {
+  await page.goto('/demo');
+  await page.getByRole('button', { name: 'Import CSV' }).click();
+  const csv = 'title,url,tags,status,priority,saved_at\n"Imported link","https://example.com/imported","research; queue","read","soon","2026-08-28T12:00:00+00:00"\n';
+  await page.getByLabel('CSV file').setInputFiles({ name: 'reading-queue.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await expect(page.getByText('1 links are ready. Existing title-and-link matches will be skipped.')).toBeVisible();
+  await page.getByRole('button', { name: 'Import CSV links' }).click();
+  await expect(page.getByText('1 links imported. 0 duplicates skipped.')).toBeVisible();
+  await page.getByRole('button', { name: 'Read 2' }).click();
+  await expect(page.getByRole('heading', { name: 'Imported link' })).toBeVisible();
+  await page.getByRole('button', { name: 'Import CSV' }).click();
+  await page.getByLabel('CSV file').setInputFiles({ name: 'reading-queue.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await page.getByRole('button', { name: 'Import CSV links' }).click();
+  await expect(page.getByText('0 links imported. 1 duplicates skipped.')).toBeVisible();
 });

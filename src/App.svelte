@@ -3,7 +3,8 @@
   import type { FeedToken, Item } from './lib';
   import { dateLabel, priorityLabel, sessionKey } from './lib';
 
-  type Route = 'home' | 'demo' | 'privacy' | 'terms' | 'not-found';
+  type Route = 'home' | 'demo' | 'privacy' | 'terms' | 'extension' | 'not-found';
+  type ImportRow = { title: string; url: string; tags: string[]; status: Item['status']; priority: Item['priority'] };
   const demoSessionKey = 'demo:rss-saved-queue:workspace';
   const demoFeedKey = 'demo:rss-saved-queue:feed';
   const siteOrigin = 'https://rss-saved-queue.sociobot.in';
@@ -27,6 +28,10 @@
   let undo: Item | null = null;
   let showSave = false;
   let showConnect = false;
+  let showImport = false;
+  let importRows: ImportRow[] = [];
+  let importProblem = '';
+  let importing = false;
   let dark = localStorage.getItem('rss-saved-queue:theme') === 'dark';
   let routeAnnouncement = '';
 
@@ -43,6 +48,7 @@
     const onPopState = () => void activateCurrentRoute(true);
     addEventListener('popstate', onPopState);
     if (route === 'demo' || (route === 'home' && localStorage.getItem(sessionKey))) void load();
+    if (route === 'extension') void ensureSession();
     return () => removeEventListener('popstate', onPopState);
   });
 
@@ -51,6 +57,7 @@
     if (location.pathname === '/') return 'home';
     if (location.pathname === '/privacy') return 'privacy';
     if (location.pathname === '/terms') return 'terms';
+    if (location.pathname === '/extension-setup') return 'extension';
     return 'not-found';
   }
 
@@ -58,6 +65,7 @@
     if (next === 'demo') return { title: 'Demo — RSS Saved Queue', description: 'Try a private RSS queue with three sample links. Demo changes never reach your real queue.', path: '/demo' };
     if (next === 'privacy') return { title: 'Privacy — RSS Saved Queue', description: 'See what RSS Saved Queue stores and how device keys protect each private queue.', path: '/privacy' };
     if (next === 'terms') return { title: 'Terms — RSS Saved Queue', description: 'Read the terms for using RSS Saved Queue.', path: '/terms' };
+    if (next === 'extension') return { title: 'Extension setup — RSS Saved Queue', description: 'Install the RSS Saved Queue browser extension and connect it to this private queue.', path: '/extension-setup' };
     if (next === 'not-found') return { title: 'Page not found — RSS Saved Queue', description: 'This RSS Saved Queue page could not be found.', path: '/404' };
     return { title: 'RSS Saved Queue — save links to a private RSS queue', description: 'Save web links in a private queue, set their order, and read them in your RSS reader.', path: '/' };
   }
@@ -82,9 +90,11 @@
     query = '';
     showSave = false;
     showConnect = false;
+    showImport = false;
     error = '';
     notice = '';
     if (route === 'demo' || (route === 'home' && localStorage.getItem(sessionKey))) await load();
+    if (route === 'extension') await ensureSession();
     await tick();
     const heading = document.querySelector<HTMLElement>('main h1');
     routeAnnouncement = heading?.textContent?.replace(/\s+/g, ' ').trim() || document.title;
@@ -135,12 +145,22 @@
     if (route === 'demo') headers.set('X-Demo-Workspace', deviceKey);
     else headers.set('Authorization', 'Bearer ' + deviceKey);
     if (options.body) headers.set('Content-Type', 'application/json');
-    const response = await fetch(target, { ...options, headers });
+    let response: Response;
+    try {
+      response = await fetch(target, { ...options, headers });
+    } catch {
+      throw new Error('offline');
+    }
     if (!response.ok) {
       const body = await response.json().catch(() => null);
       throw new Error(body?.error || 'The queue request failed. Retry it.');
     }
     return response.status === 204 ? null : response.json();
+  }
+
+  function recovery(caught: unknown, action: string) {
+    if (caught instanceof Error && caught.message === 'offline') return `This action was not completed because you are offline. Reconnect, then ${action} again.`;
+    return caught instanceof Error ? caught.message : `Could not ${action} this link. Check the fields and retry.`;
   }
 
   async function load(retryDemo = true) {
@@ -166,7 +186,15 @@
   }
 
   async function resetDemo() {
-    if (deviceKey) await fetch('/api/demo/session', { method: 'DELETE', headers: { 'X-Demo-Workspace': deviceKey } }).catch(() => undefined);
+    try {
+      if (deviceKey) {
+        const response = await fetch('/api/demo/session', { method: 'DELETE', headers: { 'X-Demo-Workspace': deviceKey } });
+        if (!response.ok) throw new Error('offline');
+      }
+    } catch {
+      error = 'This demo was not reset because you are offline. Reconnect, then reset it again.';
+      return;
+    }
     sessionStorage.removeItem(demoSessionKey);
     sessionStorage.removeItem(demoFeedKey);
     deviceKey = '';
@@ -203,7 +231,7 @@
       status = 'queue';
       notice = route === 'demo' ? 'Saved in this demo only.' : 'Saved to your private queue.';
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Could not save this link. Check the fields and retry.';
+      error = caught instanceof Error && caught.message === 'offline' ? 'This link was not saved because you are offline. Reconnect, then save it again.' : recovery(caught, 'save');
     } finally {
       saving = false;
     }
@@ -217,7 +245,7 @@
       await request('/api/items/' + item.id, { method: 'PATCH', body: JSON.stringify(patch) });
     } catch (caught) {
       items = items.map((entry) => entry.id === item.id ? previous : entry);
-      error = caught instanceof Error ? caught.message : 'Could not update this link. Retry the change.';
+      error = caught instanceof Error && caught.message === 'offline' ? 'This change was not saved because you are offline. Reconnect, then make it again.' : recovery(caught, 'update');
     }
   }
 
@@ -243,7 +271,7 @@
       notice = 'Link removed.';
     } catch (caught) {
       items = previous;
-      error = caught instanceof Error ? caught.message : 'Could not remove this link. Retry the removal.';
+      error = caught instanceof Error && caught.message === 'offline' ? 'This removal was not saved because you are offline. Reconnect, then remove it again.' : recovery(caught, 'remove');
     }
   }
 
@@ -259,7 +287,7 @@
       tokens = await request('/api/feed-tokens');
       notice = 'Private RSS link created. Copy it now.';
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Could not create a private RSS link. Retry it.';
+      error = caught instanceof Error && caught.message === 'offline' ? 'This RSS link was not created because you are offline. Reconnect, then create it again.' : recovery(caught, 'create');
     } finally {
       creatingToken = false;
     }
@@ -274,7 +302,7 @@
       if (route === 'demo') sessionStorage.removeItem(demoFeedKey);
       notice = 'Private RSS link revoked.';
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Could not revoke that RSS link. Retry it.';
+      error = caught instanceof Error && caught.message === 'offline' ? 'This RSS link was not revoked because you are offline. Reconnect, then revoke it again.' : recovery(caught, 'revoke');
     }
   }
 
@@ -285,7 +313,8 @@
       const headers = new Headers();
       if (route === 'demo') headers.set('X-Demo-Workspace', deviceKey);
       else headers.set('Authorization', 'Bearer ' + deviceKey);
-      const response = await fetch(path, { headers });
+      let response: Response;
+      try { response = await fetch(path, { headers }); } catch { throw new Error('offline'); }
       if (!response.ok) throw new Error('Could not export your queue. Retry the export.');
       const objectUrl = URL.createObjectURL(await response.blob());
       const link = document.createElement('a');
@@ -295,8 +324,62 @@
       URL.revokeObjectURL(objectUrl);
       notice = 'CSV export created.';
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Could not export your queue. Retry the export.';
+      error = caught instanceof Error && caught.message === 'offline' ? 'This CSV was not exported because you are offline. Reconnect, then export it again.' : recovery(caught, 'export');
     }
+  }
+
+  async function openConnect() {
+    error = '';
+    try {
+      await ensureSession();
+      showConnect = !showConnect;
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'We could not prepare your private RSS link.';
+    }
+  }
+
+  function parseCsv(text: string): ImportRow[] {
+    const rows: string[][] = [];
+    let row: string[] = [], value = '', quoted = false;
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      if (quoted && char === '"' && text[i + 1] === '"') { value += '"'; i += 1; }
+      else if (char === '"') quoted = !quoted;
+      else if (!quoted && char === ',') { row.push(value); value = ''; }
+      else if (!quoted && (char === '\n' || char === '\r')) { if (char === '\r' && text[i + 1] === '\n') i += 1; row.push(value); if (row.some(Boolean)) rows.push(row); row = []; value = ''; }
+      else value += char;
+    }
+    if (value || row.length) { row.push(value); rows.push(row); }
+    const expected = 'title,url,tags,status,priority,saved_at';
+    if (rows[0]?.join(',') !== expected) throw new Error('Use a CSV exported by RSS Saved Queue.');
+    return rows.slice(1).map((entry, index) => {
+      const [itemTitle, url, rawTags, itemStatus, priority] = entry;
+      if (!itemTitle || !url || !['queue', 'read', 'archived'].includes(itemStatus) || !['next', 'soon', 'later'].includes(priority)) throw new Error(`Row ${index + 2} needs a title, web link, status, and priority.`);
+      return { title: itemTitle, url, tags: rawTags ? rawTags.split(';').map((tag) => tag.trim()).filter(Boolean) : [], status: itemStatus as Item['status'], priority: priority as Item['priority'] };
+    });
+  }
+
+  async function previewImport(event: Event) {
+    importProblem = '';
+    importRows = [];
+    const file = (event.currentTarget as HTMLInputElement).files?.[0];
+    if (!file) return;
+    try { importRows = parseCsv(await file.text()); }
+    catch (caught) { importProblem = caught instanceof Error ? caught.message : 'This CSV could not be read.'; }
+  }
+
+  async function importCsv() {
+    importing = true;
+    error = '';
+    try {
+      const result = await request('/api/import.csv', { method: 'POST', body: JSON.stringify({ items: importRows }) });
+      await load();
+      showImport = false;
+      importRows = [];
+      notice = `${result.added} links imported. ${result.duplicates} duplicates skipped.`;
+    } catch (caught) {
+      error = caught instanceof Error && caught.message === 'offline' ? 'This CSV was not imported because you are offline. Reconnect, then import it again.' : recovery(caught, 'import');
+    } finally { importing = false; }
   }
 </script>
 
@@ -314,10 +397,11 @@
   <a class="wordmark" href="/" onclick={(event) => navigate(event, '/')} aria-label="RSS Saved Queue home"><span aria-hidden="true">↯</span> SAVED<br />QUEUE</a>
   <nav class="site-nav" aria-label="Main navigation">
     <a href="/demo" onclick={(event) => navigate(event, '/demo')}>Demo</a>
+    <a href="/extension-setup" onclick={(event) => navigate(event, '/extension-setup')}>Extension</a>
     <a href="/privacy" onclick={(event) => navigate(event, '/privacy')}>Privacy</a>
   </nav>
   <div class="top-actions">
-    <button class="icon-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'} onclick={() => dark = !dark}>{dark ? '☀' : '◐'}</button>
+    <button class="theme-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'} onclick={() => dark = !dark}><span aria-hidden="true">{dark ? '☀' : '◐'}</span>{dark ? 'Use light theme' : 'Use dark theme'}</button>
     {#if appRoute}<button class="button button-ink" onclick={openSave}>Save a link <span aria-hidden="true">↗</span></button>{/if}
   </div>
 </header>
@@ -352,6 +436,18 @@
       <h2>Service limits</h2><p>The service is provided as-is.</p><p>We may limit requests that threaten reliability or security.</p><p>These terms are effective 28 August 2026.</p>
       <a class="button button-ink" href="/" onclick={(event) => navigate(event, '/')}>Return to your queue</a>
     </article>
+  {:else if route === 'extension'}
+    <article class="legal extension-guide">
+      <p class="eyebrow">BROWSER EXTENSION</p><h1 tabindex="-1">Save the tab you are reading.</h1>
+      <p>Download the package, then load it as an unpacked Chrome extension.</p>
+      <p><a class="button button-coral" href="/extension.zip" download>Download extension package</a></p>
+      <h2>Connect it to this queue</h2>
+      <ol><li>Open Chrome’s extension page and turn on Developer mode.</li><li>Unzip the download and choose Load unpacked.</li><li>Open extension settings and paste these values.</li></ol>
+      <label for="guide-endpoint">Service URL</label><input id="guide-endpoint" class="secret" readonly value={extensionEndpoint} />
+      <label for="guide-device-key">Device key</label><input id="guide-device-key" class="secret" readonly value={deviceKey} />
+      <p>The extension stores these settings locally. It saves the active tab’s title, link, and entered tags.</p>
+      <a class="button button-ink" href="/" onclick={(event) => navigate(event, '/')}>Return to your queue</a>
+    </article>
   {:else if route === 'not-found'}
     <section class="not-found">
       <p class="eyebrow">MISFILED LINK · 404</p><h1 tabindex="-1">This page is not in the queue.</h1>
@@ -364,7 +460,7 @@
       <h1 id="page-title" tabindex="-1">{demoMode ? 'Explore a sample private RSS queue.' : 'Save web links in a private RSS queue.'}</h1>
       <p class="lede">{demoMode ? 'Three sample links show priorities, queue states, export, and RSS.' : 'For people who save too many links and read in an RSS reader.'}</p>
       {#if !demoMode}
-        <div class="hero-actions"><a class="button button-coral" href="/demo" onclick={(event) => navigate(event, '/demo')}>Try it with sample data</a><span>See three saved articles and their RSS feed.</span><button class="text-link" onclick={openSave}>Save your first link</button></div>
+        <div class="hero-actions"><a class="button button-coral" href="/demo" onclick={(event) => navigate(event, '/demo')}>Try it with sample data</a><span>See three saved links and their RSS feed.</span><button class="text-link" onclick={openSave}>Save your first link</button></div>
         <ul class="plain-facts" aria-label="Product facts"><li><strong>Private:</strong> each browser has its own queue.</li><li><strong>No page fetching</strong> or tracking.</li><li><strong>Free.</strong> Internet connection required.</li></ul>
       {/if}
     </section>
@@ -372,7 +468,7 @@
     <section class="queue-panel" aria-labelledby="queue-title">
       <div class="queue-toolbar">
         <div><p class="eyebrow">YOUR SAVED LINKS</p><h2 id="queue-title">{counts.queue} {counts.queue === 1 ? 'link' : 'links'} in queue</h2></div>
-        <div class="toolbar-actions"><button class="text-button" onclick={() => showConnect = !showConnect} aria-expanded={showConnect}>Create private RSS link</button><button class="text-button" onclick={exportCsv}>Export CSV</button></div>
+        <div class="toolbar-actions"><button class="text-button" onclick={openConnect} aria-expanded={showConnect}>Create private RSS link</button><button class="text-button" onclick={() => showImport = !showImport} aria-expanded={showImport}>Import CSV</button><button class="text-button" onclick={exportCsv}>Export CSV</button></div>
       </div>
       {#if demoMode && createdFeedUrl}<div class="demo-outcome"><span><strong>Sample RSS is ready.</strong> It contains the two queued links.</span><a href={createdFeedUrl} target="_blank" rel="noopener">Preview sample RSS <span aria-hidden="true">↗</span></a></div>{/if}
       {#if showConnect}
@@ -382,8 +478,16 @@
             <label for="token-label">Reader name</label><div class="feed-form"><input id="token-label" bind:value={tokenLabel} maxlength="80" required /><button class="button button-coral" disabled={creatingToken}>{creatingToken ? 'Creating…' : 'Create RSS feed link'}</button></div>
             {#if createdFeedUrl}<label for="feed-link">Private RSS link</label><input id="feed-link" class="secret" readonly value={createdFeedUrl} aria-describedby="feed-link-help" /><p id="feed-link-help">Copy this link into your reader. You can revoke it below.</p>{/if}
           </form>
-          {#if !demoMode}<div class="extension-box"><h4>Browser extension</h4><p>Load <code>extension/</code>, then add these values.</p><label for="extension-endpoint">Service URL</label><input id="extension-endpoint" readonly value={extensionEndpoint} /><label for="device-key">Device key</label><input id="device-key" class="secret" readonly value={deviceKey} /><p>The extension sends the active tab’s title and link, plus tags you enter.</p></div>{/if}
+          {#if !demoMode}<div class="extension-box"><h4>Browser extension</h4><p><a href="/extension-setup" onclick={(event) => navigate(event, '/extension-setup')}>Download the extension and follow the setup steps.</a></p><label for="extension-endpoint">Service URL</label><input id="extension-endpoint" readonly value={extensionEndpoint} /><label for="device-key">Device key</label><input id="device-key" class="secret" readonly value={deviceKey} /><p>The extension sends the active tab’s title and link, plus tags you enter.</p></div>{/if}
           <ul class="token-list" aria-label="Private RSS links">{#each tokens as token}<li><span><strong>{token.label}</strong><small>{token.revoked_at ? 'Revoked' : 'Active'}</small></span>{#if !token.revoked_at}<button class="text-button danger-text" onclick={() => revokeToken(token)}>Revoke RSS link</button>{/if}</li>{/each}</ul>
+        </section>
+      {/if}
+      {#if showImport}
+        <section class="import-sheet" aria-labelledby="import-title">
+          <div><p class="eyebrow">IMPORT A PRIOR EXPORT</p><h3 id="import-title">Review CSV links before adding them.</h3><p>Only exported link details are read. The app does not fetch links.</p></div>
+          <div><label for="csv-file">CSV file</label><input id="csv-file" type="file" accept="text/csv,.csv" onchange={previewImport} />
+          {#if importProblem}<p class="form-error" role="alert">{importProblem}</p>{/if}
+          {#if importRows.length}<p>{importRows.length} links are ready. Existing title-and-link matches will be skipped.</p><button class="button button-coral" onclick={importCsv} disabled={importing}>{importing ? 'Importing…' : 'Import CSV links'}</button>{/if}</div>
         </section>
       {/if}
       <nav class="tabs" aria-label="Queue views">
@@ -419,6 +523,6 @@
 </main>
 <footer>
   <p>A private RSS queue for saved links.</p>
-  <nav aria-label="Legal links"><a href="/privacy" onclick={(event) => navigate(event, '/privacy')}>Privacy</a><a href="/terms" onclick={(event) => navigate(event, '/terms')}>Terms</a></nav>
+  <nav aria-label="Legal links"><a href="/extension-setup" onclick={(event) => navigate(event, '/extension-setup')}>Extension</a><a href="/privacy" onclick={(event) => navigate(event, '/privacy')}>Privacy</a><a href="/terms" onclick={(event) => navigate(event, '/terms')}>Terms</a></nav>
   <p>Built by Param Factory · build {__BUILD_SHA__.slice(0, 8)}</p>
 </footer>
