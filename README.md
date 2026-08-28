@@ -30,26 +30,27 @@ The queue stores entered link metadata.
 It does not fetch link contents or import public feeds.
 
 Open [the extension setup page](https://rss-saved-queue.sociobot.in/extension-setup) to download the package and copy your device key.
-Load the unzipped folder as an unpacked Chrome extension.
-Chrome asks permission for the service URL you enter.
+In Chrome’s Extensions page, turn on Developer mode.
+Choose Load unpacked and select the unzipped folder.
+Chrome then asks permission for this site’s address.
 The extension saves the active tab title, link, and entered tags.
 
 ## Run locally
 
 Install Node 22+ and stable Rust.
 
-\`\`\`sh
+```sh
 npm ci
 npm run build
 DATABASE_URL='sqlite://rss-saved-queue.db?mode=rwc' STATIC_DIR=dist cargo run
-\`\`\`
+```
 
 Open <http://localhost:8080>.
-Mount \`/data\` in production.
+Mount `/data` in production.
 
 ## Run checks
 
-\`\`\`sh
+```sh
 npm test
 npm run check
 npm run build
@@ -58,16 +59,16 @@ cargo fmt --check
 cargo test --locked
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo build --release --locked
-\`\`\`
+```
 
 Run each listed claim command from a clean checkout.
 
 ## Deploy the container
 
-Build the root \`Dockerfile\` with \`BUILD_SHA\` set to the source commit.
-Run it on \`PORT\`, which defaults to \`8080\`.
-Mount persistent storage at \`/data\`.
-The health endpoint is \`/health\`.
+Build the root `Dockerfile` with `BUILD_SHA` set to the source commit.
+Run it on `PORT`, which defaults to `8080`.
+Mount persistent storage at `/data`.
+The health endpoint is `/health`.
 
 ## Privacy and legal
 

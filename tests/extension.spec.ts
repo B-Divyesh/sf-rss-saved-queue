@@ -66,10 +66,10 @@ test('@claim:extension-save the extension requests one service origin and saves 
   });
 
   await page.goto('/extension/options.html');
-  await page.getByLabel('Service URL').fill('https://self-host.example:8443/');
+  await page.getByLabel('RSS Saved Queue address').fill('https://self-host.example:8443/');
   await page.getByLabel('Device key').fill('new-device-key');
   await page.getByRole('button', { name: 'Save settings' }).click();
-  await expect(page.getByRole('status')).toHaveText('Settings and this service permission are saved locally.');
+  await expect(page.getByRole('status')).toHaveText('Settings and this site permission are saved locally.');
   expect(await page.evaluate(() => window.__permissionRequest)).toBe('https://self-host.example:8443/*');
   expect(await page.evaluate(() => window.__savedSettings)).toEqual({ endpoint: 'https://self-host.example:8443', deviceKey: 'new-device-key' });
 

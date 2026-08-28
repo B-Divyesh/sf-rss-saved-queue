@@ -1,1 +1,1 @@
-Save web links in a private RSS queue for your reader.
+Save web links in a private RSS queue, then read them in your reader.

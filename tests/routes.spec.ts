@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { readFile } from 'node:fs/promises';
 
 test('real routes set titles, canonical metadata, focus, announcements, and history', async ({ page }) => {
   await page.goto('/');
@@ -82,6 +83,20 @@ test('sample destinations and extension package are available from the live prod
   expect(packageResponse.headers()['content-type']).toContain('application/zip');
 });
 
+test('landing copy inventory matches the rendered cold landing page', async ({ page }) => {
+  const inventory = JSON.parse(await readFile('.factory/copy-inventory.json', 'utf8')) as { landing: Array<{ text: string }> };
+  await page.goto('/');
+  const rendered = (await page.locator('body').innerText()).replace(/\s+/g, ' ').trim();
+  for (const { text } of inventory.landing) expect(rendered, text).toContain(text);
+});
+
+test('extension setup uses Chrome’s visible install label and this site’s address', async ({ page }) => {
+  await page.goto('/extension-setup');
+  await expect(page.getByText('In Chrome’s Extensions page, turn on Developer mode.')).toBeVisible();
+  await expect(page.getByText('Choose Load unpacked and select the unzipped folder.')).toBeVisible();
+  await expect(page.getByLabel('This site’s address')).toHaveValue('http://127.0.0.1:4173');
+});
+
 for (const route of ['/demo', '/privacy', '/terms', '/not-a-route']) {
   test('accessibility has no serious or critical findings on ' + route, async ({ page }) => {
     await page.goto(route);
@@ -113,4 +128,6 @@ test('extension pages have landmarks, designed focus, and 44px controls', async 
     await page.locator('input').first().focus();
     expect(await page.locator('input').first().evaluate((element) => getComputedStyle(element).outlineWidth)).toBe('3px');
   }
+  await page.goto('/extension/options.html');
+  await expect(page.getByLabel('RSS Saved Queue address')).toBeVisible();
 });

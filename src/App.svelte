@@ -439,11 +439,11 @@
   {:else if route === 'extension'}
     <article class="legal extension-guide">
       <p class="eyebrow">BROWSER EXTENSION</p><h1 tabindex="-1">Save the tab you are reading.</h1>
-      <p>Download the package, then load it as an unpacked Chrome extension.</p>
+      <p>Download the package, then add it in Chrome.</p>
       <p><a class="button button-coral" href="/extension.zip" download>Download extension package</a></p>
       <h2>Connect it to this queue</h2>
-      <ol><li>Open Chrome’s extension page and turn on Developer mode.</li><li>Unzip the download and choose Load unpacked.</li><li>Open extension settings and paste these values.</li></ol>
-      <label for="guide-endpoint">Service URL</label><input id="guide-endpoint" class="secret" readonly value={extensionEndpoint} />
+      <ol><li>In Chrome’s Extensions page, turn on Developer mode.</li><li>Choose Load unpacked and select the unzipped folder.</li><li>Open extension settings and paste this site’s address and your device key.</li></ol>
+      <label for="guide-endpoint">This site’s address</label><input id="guide-endpoint" class="secret" readonly value={extensionEndpoint} />
       <label for="guide-device-key">Device key</label><input id="guide-device-key" class="secret" readonly value={deviceKey} />
       <p>The extension stores these settings locally. It saves the active tab’s title, link, and entered tags.</p>
       <a class="button button-ink" href="/" onclick={(event) => navigate(event, '/')}>Return to your queue</a>
@@ -478,7 +478,7 @@
             <label for="token-label">Reader name</label><div class="feed-form"><input id="token-label" bind:value={tokenLabel} maxlength="80" required /><button class="button button-coral" disabled={creatingToken}>{creatingToken ? 'Creating…' : 'Create RSS feed link'}</button></div>
             {#if createdFeedUrl}<label for="feed-link">Private RSS link</label><input id="feed-link" class="secret" readonly value={createdFeedUrl} aria-describedby="feed-link-help" /><p id="feed-link-help">Copy this link into your reader. You can revoke it below.</p>{/if}
           </form>
-          {#if !demoMode}<div class="extension-box"><h4>Browser extension</h4><p><a href="/extension-setup" onclick={(event) => navigate(event, '/extension-setup')}>Download the extension and follow the setup steps.</a></p><label for="extension-endpoint">Service URL</label><input id="extension-endpoint" readonly value={extensionEndpoint} /><label for="device-key">Device key</label><input id="device-key" class="secret" readonly value={deviceKey} /><p>The extension sends the active tab’s title and link, plus tags you enter.</p></div>{/if}
+          {#if !demoMode}<div class="extension-box"><h4>Browser extension</h4><p><a href="/extension-setup" onclick={(event) => navigate(event, '/extension-setup')}>Download the extension and follow the setup steps.</a></p><label for="extension-endpoint">This site’s address</label><input id="extension-endpoint" readonly value={extensionEndpoint} /><label for="device-key">Device key</label><input id="device-key" class="secret" readonly value={deviceKey} /><p>The extension sends the active tab’s title and link, plus tags you enter.</p></div>{/if}
           <ul class="token-list" aria-label="Private RSS links">{#each tokens as token}<li><span><strong>{token.label}</strong><small>{token.revoked_at ? 'Revoked' : 'Active'}</small></span>{#if !token.revoked_at}<button class="text-button danger-text" onclick={() => revokeToken(token)}>Revoke RSS link</button>{/if}</li>{/each}</ul>
         </section>
       {/if}

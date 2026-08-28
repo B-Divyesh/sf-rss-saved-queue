@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run",
+    "audit:copy": "node scripts/copy-audit.mjs --check",
+    "test": "npm run audit:copy && vitest run",
     "test:browser": "playwright test",
     "preview": "vite preview"
   },
