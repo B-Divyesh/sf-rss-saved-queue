@@ -1,140 +1,132 @@
 # Perfection loop round 1 handoff — PASS
 
-## Scope
+## Outcome
 
-Repaired released candidate \`41085519b2b806c7ac568857f9f00325d8fc16e7\` against every blocking and major finding in \`.factory/review-1.md\`.
+Polished released candidate `fd638a94b897131b0dced9f76373ef152c66d049` against every finding in
+`.factory/review-1.md`. The executable repair is `1af906fc8ec595827a111788e7ae0fb848079fb5`.
+It is pushed to `origin/main` and deployed at <https://rss-saved-queue.sociobot.in>.
 
-Executable repair commit: \`c5ed65d9d36a43cf3d5e25b3eecd0eea99300dad\`.
+The first screen states the job and audience, leads to a one-click isolated demo, and explains the click.
+The demo is an in-memory 24-hour workspace with a separate `demo:` session-storage namespace.
+Reset reseeds three realistic links. Start for real destroys the demo without reading or writing a real queue.
 
-## Review acceptance
+Eight claims are registered in `.factory/claims.json`, each with one executable tagged test.
+The extension claim runs the shipped popup and settings behavior with recorded fixtures.
+Routes, titles, metadata, navigation focus, announcements, discovery files, 404 recovery, legal links, and mobile layout are covered.
+The quiet reading-room ledger identity remains unchanged.
 
-- B1: the first screen now says **“Save web links in a private RSS queue.”**
-  It names the audience, leads with **Try it with sample data**, explains the click, and keeps **Save your first link** secondary.
-- B2: \`/demo\` and \`/?demo=1\` provision random, in-memory demo tenants.
-  They seed three links, three priorities, two queue states, and a working RSS preview.
-  The persistent banner includes **Reset demo** and **Start for real**.
-  Demo requests use only \`/api/demo/*\`; real SQLite accounts are unreachable.
-- B3/B4: \`.factory/claims.json\` registers eight public claims.
-  Each claim has one tagged test and an exact command.
-  CSV content, RSS creation/revocation, no-fetch behavior, key hashing/isolation, same-origin privacy, extension fields, free access, and demo isolation are observable.
-- B5: real routes now cover \`/demo\`, \`/privacy\`, \`/terms\`, and styled 404 recovery.
-  Titles, descriptions, canonical, Open Graph, Twitter, favicon, apple-touch icon, robots, sitemap, and social art are present.
-  History navigation focuses the new \`h1\` and updates a polite route announcement.
-- M1–M4: the landing page includes three facts, the live queue, three workflow steps, and clear privacy boundaries.
-  Queue/link terminology is consistent.
-  README sentences were shortened.
-  RSS controls now name their result.
-- Supplemental product defects: private feeds use \`no-store\`; HSTS is present.
-  All visible controls and links meet 44 px touch sizing, including extension pages.
-  Rate limits use the first \`X-Forwarded-For\` hop and return \`Retry-After\`.
+This pass also enabled compressed text responses, removed the obsolete HTTP client, made startup configuration provenance explicit,
+and moved extension CSS out of inline markup so CSP cannot block its target sizing and focus treatment.
 
-The quiet reading-room ledger identity remains intact.
-The responsive design uses the same paper, ink, coral, ochre, and sage palette.
-The social preview and icons are original, hand-authored derivatives of that system.
+The finding-by-finding record is in `.factory/polish-1.md`.
 
 ## Clean-clone claim evidence
 
-A new clone at \`/tmp/rss-claims-0cmS8C\` ran every \`test\` command from \`.factory/claims.json\`.
-All eight commands passed independently:
+Clone: `/tmp/rss-polish-claims-VBUggz/repo` at `1af906fc8ec595827a111788e7ae0fb848079fb5`.
 
-- \`@claim:demo-isolation\`
-- \`@claim:saved-metadata-no-fetch\`
-- \`@claim:csv-export\`
-- \`@claim:rss-feed-revocation\`
-- \`@claim:device-isolation\`
-- \`@claim:same-origin-privacy\`
-- \`@claim:extension-save\`
-- \`@claim:free-access\`
+All eight commands from `.factory/claims.json` passed separately:
+
+- `@claim:demo-isolation`
+- `@claim:saved-metadata-no-fetch`
+- `@claim:csv-export`
+- `@claim:rss-feed-revocation`
+- `@claim:device-isolation`
+- `@claim:same-origin-privacy`
+- `@claim:extension-save`
+- `@claim:free-access`
 
 ## Full clean-clone verification
 
-A separate clean clone at \`/tmp/rss-full-cp5T3b\` passed:
-
-\`\`\`text
+```text
 npm ci                                             PASS — 86 packages; 0 vulnerabilities
 npm test                                           PASS — 2/2
 npm run check                                      PASS — 0 errors; 0 warnings
 npm run build                                      PASS — JS 61.60 kB / 23.06 kB gzip
                                                        CSS 12.35 kB / 3.40 kB gzip
 cargo fmt --check                                  PASS
-cargo test --locked                                PASS — 8/8
+cargo test --locked                                PASS — 9/9
 cargo clippy --locked --all-targets --all-features -- -D warnings
                                                    PASS
 cargo build --release --locked                     PASS
-npm run test:browser -- --reporter=line            PASS — 23/23
+npm run test:browser -- --reporter=line            PASS — 24/24
 git status --short                                 PASS — clean
-\`\`\`
+```
 
-Browser coverage includes light and dark themes, invalid forms, demo reset, direct \`?demo=1\`, CSV, RSS revocation, route history, focus, announcements, links, 404, privacy, offline recovery, and 390 px layout.
-Playwright axe reported zero serious or critical issues on demo, populated, error, privacy, terms, and 404 states.
+Browser coverage includes every claim, both themes, invalid forms, offline recovery, demo reset and exit, direct `?demo=1`,
+CSV content, RSS creation/revocation and caching, route history/focus/announcements, link crawling, 404, privacy, 390 px layout,
+extension behavior, extension landmarks, designed focus, and 44 px controls.
 
-## Runtime and performance evidence
+Docker and Podman were unavailable locally. The successful factory ACR build exercised the complete multi-stage Dockerfile.
 
-The release binary started with only \`PORT=4181\`.
-It created default storage, logged configuration origin without secrets, and returned \`{"status":"ok","build":"dev"}\`.
+## Local runtime evidence
 
-Local \`verify-url.sh\` result:
+The service ran on `PORT=4181` and logged `database=supplied` and `static_dir=supplied` without printing values or secrets.
 
-\`\`\`text
-HTTP 200; 519 ms
-title present; lang=en; one h1; main present
-0 missing image alternatives; 0 unlabeled buttons; 0 console/page errors
-\`\`\`
+`verify-url.sh` passed: HTTP 200, 561 ms, title present, `lang=en`, one h1, main present,
+zero missing image alternatives, zero unlabeled buttons, and zero console/page errors.
+
+Local compressed JS returned `Content-Encoding: gzip`, immutable caching, HSTS, CSP, nosniff, same-origin referrer,
+frame denial, and restrictive permissions policy.
 
 Local Lighthouse mobile:
 
-\`\`\`text
+```text
 Performance 99; Accessibility 100; Best Practices 100; SEO 100
-LCP 1.5 s; TBT 90 ms; CLS 0; transfer 98 KiB
-\`\`\`
+LCP 1.4 s; TBT 110 ms; CLS 0; transfer 52 KiB
+```
 
-A 50-request forwarded-IP burst returned 43 authorization responses and 7 rate-limit responses.
-The final \`429\` included \`Retry-After: 1\`.
-A sample private RSS response returned \`Cache-Control: no-store\`.
-HTML and RSS responses include CSP, HSTS, nosniff, same-origin referrer, framing, and permissions headers.
+## Deployment and live evidence
 
-Docker and Podman were unavailable locally.
-The factory ACR build completed successfully, which exercised the root multi-stage Dockerfile.
+Deployment command:
 
-## Deployment evidence
-
-Factory deployment command:
-
-\`\`\`sh
+```sh
 /opt/fleet/lib/deploy-container.sh rss-saved-queue /work/repo Dockerfile 8080
-\`\`\`
+```
 
 Result:
 
-\`\`\`text
-ACR run chg3: succeeded after 5m12s
-Image: sociobotregistry.azurecr.io/sf-rss-saved-queue:c5ed65d9d36a
+```text
+ACR run chgb: succeeded after 5m26s
+Image tag: 1af906fc8ec5
 Container app: sf-rss-saved-queue
-HTTPS: https://rss-saved-queue.sociobot.in → 200
-Health build: c5ed65d9d36a43cf3d5e25b3eecd0eea99300dad
-Designed unknown route: 404
-\`\`\`
+https://rss-saved-queue.sociobot.in -> 200
+/health -> 1af906fc8ec595827a111788e7ae0fb848079fb5
+```
 
-Live \`verify-url.sh\` passed in 540 ms with zero console errors.
-The live 390 px demo had no overflow or undersized controls.
-Its request log was same-origin only, and it created no real device key.
-Live axe found zero serious or critical violations.
-Live Lighthouse scored 100 performance, 100 accessibility, 100 best practices, and 100 SEO.
-Live LCP was 1.4 s, TBT 50 ms, CLS 0, and total transfer 97 KiB.
+Cold live checks confirmed:
+
+- root h1 and first action use the required plain wording;
+- `/demo` and `/?demo=1` show the banner/reset/exit and use only same-origin `/api/demo/*` requests;
+- no real device key is created in demo; exiting clears session state and makes the old workspace return 401;
+- demo save performs no request to the saved URL; CSV has one row per link; RSS has two queued items, `no-store`, and revokes to 404;
+- Privacy navigation and browser history focus the route h1;
+- Privacy, Terms, Demo, icons, robots, sitemap, and social image resolve; an unknown route returns the styled 404 with HTTP 404;
+- 390 px demo has no overflow and no visible target below 44 px;
+- live axe found zero serious/critical violations and zero total violations on Demo dark-error, Privacy, Terms, 404, and both extension pages;
+- compressed live JS returns `Content-Encoding: gzip` with immutable caching and HSTS;
+- `verify-url.sh` passed in 539 ms with zero console/page errors.
+
+Live Lighthouse mobile:
+
+```text
+Performance 100; Accessibility 100; Best Practices 100; SEO 100
+LCP 1.1 s; TBT 30 ms; CLS 0; transfer 50 KiB; console errors 0
+```
+
+Screenshots are under `.factory/screenshots/polish-1/`.
 
 ## Run and verify
 
-\`\`\`sh
+```sh
 npm ci
 npm run build
 DATABASE_URL='sqlite://rss-saved-queue.db?mode=rwc' STATIC_DIR=dist cargo run
+npm test
+npm run check
+cargo test --locked
 npm run test:browser
-\`\`\`
-
-Demo documentation is in \`.factory/demo.md\`.
-Copy evidence is in \`.factory/copy-audit.md\`.
-Claim commands are in \`.factory/claims.json\`.
+```
 
 ## Known gaps
 
-No blocking or product defect is known.
+None.
