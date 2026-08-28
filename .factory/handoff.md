@@ -79,7 +79,7 @@ Live `/health` is `{"status":"ok","build":"a1c49a7bd390bfed"}`, matching
 the Dockerfile source digest over `Cargo.toml`, `Cargo.lock`, migrations, and
 Rust source.
 
-Live `/opt/fleet/lib/verify-url.sh` passed at 695 ms with no console/page
+Live `/opt/fleet/lib/verify-url.sh` passed at 617 ms with no console/page
 errors and the same document/a11y basics. A live dark invalid-save axe check
 reported zero serious/critical violations; 390 px had no overflow and keyboard
 Tab focused the skip link. Live request smoke observed only the product origin,
