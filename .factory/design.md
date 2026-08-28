@@ -17,16 +17,19 @@ own ink `#25231f`, muted copy `#3f3b34`, and sage label `#29483d` are scoped in
 plain and quick, while Georgia provides a familiar editorial voice for reading titles.
 No font, third-party script, tracking pixel, or external image is requested.
 
-**Layout and interaction grammar:** a broad masthead leads to a single private
-reading queue. Saving opens from the action that caused it; priority is an explicit
-01/02/03 selector; the private-reader bridge is a distinct, quiet connection sheet.
-A list row has compact, labelled-by-context handling controls. On a phone the row
-becomes a two-column shelf label and story, while controls move under the story
-rather than shrink below usable size.
+**Layout and interaction grammar:** a broad masthead leads from a plain job statement
+into the live queue. The primary coral action opens an isolated sample; a quieter
+underlined action opens the real save form. Priority remains an explicit 01/02/03
+selector, and the private RSS bridge remains a separate connection sheet. Explanatory
+steps use ruled ledger columns instead of generic cards. On a phone, every queue row
+becomes one column and every action remains at least 44 px.
 
 **Motion:** a feed form may rise 6 px on entry over 180 ms; list state changes use
 opacity only. Reduced-motion users receive effectively instant state changes. No
 looping, flashing, or decorative image is used.
 
-**Asset provenance:** no raster or generated assets are shipped. The hand-authored
-wordmark and text glyphs are product UI, not external artwork.
+**Asset provenance:** all artwork is original and repository-owned. `favicon.svg`
+and `og-card.svg` were hand-authored for this product from its ledger rules, coral
+bookmark mark, and typography. Their PNG/ICO derivatives were rendered locally with
+Chromium/ImageMagick on 28 August 2026. No generated imagery, stock art, external
+font, or third-party visual asset is shipped.

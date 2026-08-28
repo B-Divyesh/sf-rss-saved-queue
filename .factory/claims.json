@@ -1,0 +1,59 @@
+[
+  {
+    "id": "demo-isolation",
+    "claim": "Demo changes stay in a separate ephemeral workspace and never touch a real queue.",
+    "where": "landing action, demo banner, README, .factory/demo.md",
+    "test": "npm run test:browser -- --grep @claim:demo-isolation",
+    "sandbox": "fresh browser context with a sentinel real device key; enter ?demo=1, mutate and reset; assert only /api/demo routes and demo: session storage are used"
+  },
+  {
+    "id": "saved-metadata-no-fetch",
+    "claim": "The queue stores entered link metadata and does not fetch link contents or import public feeds.",
+    "where": "landing facts, save form, privacy page, README",
+    "test": "npm run test:browser -- --grep @claim:saved-metadata-no-fetch",
+    "sandbox": "fresh /demo tenant; save an unreachable external URL; assert no request reaches it and stored title, URL, tags, state, and priority match"
+  },
+  {
+    "id": "csv-export",
+    "claim": "Export CSV writes one row for every saved link.",
+    "where": "queue toolbar, README",
+    "test": "npm run test:browser -- --grep @claim:csv-export",
+    "sandbox": "fresh /demo tenant; download CSV and assert its header, three data rows, state, priority, and sample title"
+  },
+  {
+    "id": "rss-feed-revocation",
+    "claim": "Create a private RSS link for queued links and revoke it later.",
+    "where": "How it works, RSS panel, README",
+    "test": "npm run test:browser -- --grep @claim:rss-feed-revocation",
+    "sandbox": "fresh /demo tenant; create link, fetch RSS and inspect queued content, revoke, then assert the same URL returns 404"
+  },
+  {
+    "id": "device-isolation",
+    "claim": "Each device key opens only its own queue.",
+    "where": "landing facts, privacy page, README",
+    "test": "npm run test:browser -- --grep @claim:device-isolation",
+    "sandbox": "create two fresh real sessions; save through the first; assert the second cannot list or update the item"
+  },
+  {
+    "id": "same-origin-privacy",
+    "claim": "The app uses no analytics, ads, external fonts, or third-party scripts.",
+    "where": "landing privacy section, privacy page, README",
+    "test": "npm run test:browser -- --grep @claim:same-origin-privacy",
+    "sandbox": "fresh /demo tenant; capture the full load, RSS-create, and CSV-export request log; assert every request is same-origin"
+  },
+  {
+    "id": "extension-save",
+    "claim": "The included browser extension saves the active tab title, link, and entered tags.",
+    "where": "RSS panel, README",
+    "test": "npm run test:browser -- --grep @claim:extension-save",
+    "sandbox": "inspect the shipped MV3 manifest and popup implementation; assert activeTab access, exact-origin permission flow, payload fields, and authenticated save endpoint"
+  },
+  {
+    "id": "free-access",
+    "claim": "The queue is free to use and requires no account or payment.",
+    "where": "landing facts, README",
+    "test": "npm run test:browser -- --grep @claim:free-access",
+    "sandbox": "fresh /demo tenant; assert save, RSS, and CSV controls work without login, checkout, billing, or payment requests"
+  }
+]
+

@@ -1,62 +1,76 @@
 # RSS Saved Queue
 
-RSS Saved Queue is a private, deliberately small reading queue for people who
-save links from around the web and want to read them in their own RSS reader.
-It stores only the title, URL, tags, and queue state you provide; it never
-fetches saved pages or imports public feeds.
+Save web links in a private queue, then read them in your RSS reader.
 
-Each browser receives a random device key stored locally. The server retains
-only its SHA-256 hash, so every API request and export is isolated to that
-device key. Treat it like a password. The app can create long random,
-revocable RSS links for feed readers; the reader state endpoint is
-`POST /reader/<feed-token>/items/<id>/read`.
+It is for people who save too many links and want a smaller reading list.
+The queue is free to use and requires no account or payment.
 
-## Use it
+## Try the sample queue
 
-Open the app, save a page, then choose **Connect reader** to create a private
-RSS link. The newly generated link is shown exactly once; paste it into your
-reader and revoke it from the app whenever needed.
+Open [the sample queue](https://rss-saved-queue.sociobot.in/demo).
 
-To use the browser extension, load the repository's `extension/` directory as
-an unpacked Manifest V3 extension. In its options, paste the service URL and
-device key shown under **Connect reader**. Chrome then asks you to allow that
-exact service origin, so the extension can work with this hosted instance or a
-self-hosted one without gaining automatic access to every site. It saves the
-active tab's title and URL, plus tags you enter.
+It starts with three links, varied priorities, two queue states, and a working RSS preview.
+Demo changes stay in a separate memory-only workspace and never touch your real queue.
+Use **Reset demo** for a fresh sample.
+Use **Start for real** to discard the demo.
+
+## Save and read links
+
+Save a title, link, and optional tags.
+Set its priority and queue state.
+Create a private RSS link for queued links and revoke it later.
+Export CSV writes one row for every saved link.
+
+Each browser keeps a device key for its queue.
+The server stores a one-way hash of that key.
+A second device key cannot open or change the first queue.
+
+The queue stores entered link metadata.
+It does not fetch link contents or import public feeds.
+
+Load the \`extension/\` folder as an unpacked Chrome extension.
+Chrome asks permission for the service URL you enter.
+The extension saves the active tab title, link, and entered tags.
 
 ## Run locally
 
-Requires Node 22+ and Rust.
+Install Node 22+ and stable Rust.
 
-```sh
+\`\`\`sh
 npm ci
 npm run build
 DATABASE_URL='sqlite://rss-saved-queue.db?mode=rwc' STATIC_DIR=dist cargo run
-```
+\`\`\`
 
-Open <http://localhost:8080>. The default production database is
-`/data/rss-saved-queue.db`; mount `/data` when running the container to keep
-saved queues across replacements.
+Open <http://localhost:8080>.
+Mount \`/data\` in production to keep queues after container replacement.
 
-## Verify
+## Run checks
 
-```sh
-npm ci
+\`\`\`sh
 npm test
 npm run check
 npm run build
-npx playwright test --reporter=line
+npm run test:browser
 cargo fmt --check
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
+cargo test --locked
+cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo build --release --locked
-```
+\`\`\`
 
-The root Dockerfile builds the Svelte frontend and Rust service, runs as a
-non-root user, and listens on `PORT` (default `8080`). Built hashed assets are
-served with immutable caching; API and private-feed responses are not stored.
+Every public product promise appears in [\`.factory/claims.json\`](.factory/claims.json).
+Run each listed command from a clean checkout.
+
+## Deploy the container
+
+Build the root \`Dockerfile\` with \`BUILD_SHA\` set to the source commit.
+Run it on \`PORT\`, which defaults to \`8080\`.
+Mount persistent storage at \`/data\`.
+The health endpoint is \`/health\`.
 
 ## Privacy and legal
 
-There are no trackers, analytics, external fonts, or third-party scripts.
-See `/privacy` and `/terms` in the running app.
+The app uses no analytics, ads, external fonts, or third-party scripts.
+Read the live [privacy policy](https://rss-saved-queue.sociobot.in/privacy) and [terms](https://rss-saved-queue.sociobot.in/terms).
+
+MIT licensed. See [LICENSE](LICENSE).

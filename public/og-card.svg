@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#f5f0e7"/>
+  <path d="M0 88h1200M0 542h1200" stroke="#b9b0a4" stroke-width="2"/>
+  <path d="M77 120v372" stroke="#a83222" stroke-width="10"/>
+  <text x="110" y="78" fill="#29483d" font-family="monospace" font-size="24" font-weight="700" letter-spacing="3">PRIVATE RSS QUEUE FOR SAVED LINKS</text>
+  <text x="110" y="240" fill="#25231f" font-family="Georgia,serif" font-size="82">Save web links in a</text>
+  <text x="110" y="335" fill="#25231f" font-family="Georgia,serif" font-size="82">private RSS queue.</text>
+  <text x="110" y="430" fill="#625e57" font-family="sans-serif" font-size="30">Choose what to read next. Follow the queue in your reader.</text>
+  <text x="110" y="585" fill="#25231f" font-family="monospace" font-size="25" font-weight="700">↯ RSS SAVED QUEUE</text>
+</svg>
