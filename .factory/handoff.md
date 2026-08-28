@@ -1,91 +1,23 @@
-# Repair handoff — ready for deployment
+# Verification handoff — PASS
 
-## Scope
+Candidate `41085519b2b806c7ac568857f9f00325d8fc16e7` independently verified
+**PASS** on 2026-08-28 UTC. Full evidence is in `.factory/verification-3.md`.
 
-Repaired the release-blocking findings in independent verification report
-`.factory/verification-2.md` for candidate
-`770122766ee02b191147dd74d6f55572c9000353`. The private device-key queue,
-account isolation, revocable feeds, reader read endpoint, export, and no-fetch
-privacy model were retained.
+The live URL is <https://rss-saved-queue.sociobot.in>. Its health build
+`a1c49a7bd390bfed` matches the candidate's Dockerfile source digest, and its
+hashed JS/CSS assets are byte-identical to a fresh local production build.
 
-## Repairs
+Clean gates passed: `npm ci`, `npm test`, `npm run check`, `npm run build`,
+`npx playwright test --reporter=line` (8 tests), `cargo fmt --check`,
+`cargo test` (6 tests), strict clippy, and locked release build. Live Lighthouse
+mobile measured 99 performance / 100 accessibility (LCP 1.276 s, CLS 0).
 
-- Dark-mode save sheet now scopes high-contrast light-card tokens: `#25231f`
-  ink, `#3f3b34` muted copy, and `#29483d` ledger labels on ochre. The exact
-  dark invalid-save axe reproduction is covered in Playwright.
-- RSS `<pubDate>` now converts the stored RFC 3339 timestamp to RFC 2822.
-  The Rust feed test parses the emitted value with `parse_from_rfc2822`.
-- The MV3 extension now requests an optional permission for the exact configured
-  `http` or `https` service origin. It can save to a self-hosted service without
-  shipping a blanket granted host permission; denial gives an explicit recovery
-  message.
-- Added `tower_governor` per-peer rate limits: a burst of 8 session creations
-  then one every 6 seconds, plus a separate 24-burst / one-per-2-seconds bucket
-  shared by state-changing routes. The service supplies connection info and a
-  Rust regression asserts the ninth immediate session request is `429`.
-- A 13th non-empty tag is now rejected with `400 Use up to 12 tags per saved
-  page.` rather than truncated. The save form states the limit and its browser
-  regression verifies the visible recovery message.
-- First-load connection failures now enter the existing retryable queue error
-  state; the browser suite covers it. This is appropriate offline behavior for
-  this server-backed (non-PWA) product.
-
-## Verification
-
-Clean install and product gates run on 2026-08-28 UTC:
-
-```text
-npm ci                                             PASS — 87 packages, 0 vulnerabilities
-npm test                                           PASS — 2 tests
-npm run check                                      PASS — 0 errors/warnings
-npm run build                                      PASS — JS 54.05 kB / 21.00 kB gzip; CSS 7.33 kB / 2.25 kB gzip
-npx playwright test --reporter=line                PASS — 8 tests
-cargo fmt --check                                  PASS
-cargo test                                         PASS — 6 tests
-cargo clippy --all-targets --all-features -- -D warnings  PASS
-cargo build --release --locked                     PASS
-git diff --check                                   PASS
-```
-
-Browser coverage includes a populated private queue, invalid URL recovery,
-the verifier's dark-theme save sheet, tag-limit recovery, 390 px mobile without
-overflow, keyboard skip-link activation, and offline/connection recovery. Axe
-is exercised for populated, light-invalid, and dark-invalid save states; all
-have zero serious/critical violations.
-
-Fresh SQLite release-binary API smoke evidence:
-
-```text
-reader token marks its item read                         200
-13 tags are rejected                                    400
-9th immediate POST /api/session from one peer           429
-private RSS XML escapes title text and has RFC 2822 pubDate  PASS
-```
-
-`/opt/fleet/lib/verify-url.sh http://127.0.0.1:8091` passed: 584 ms local
-load, no console/page errors, `lang=en`, one `<h1>`, a `<main>`, zero missing
-image alts, and zero unlabeled buttons. A Playwright traffic smoke saw only the
-local origin, zero cookies, zero service workers, and zero errors. Local HTTP
-checks confirm self-only CSP; `nosniff`, DENY framing, same-origin referrer,
-Permissions-Policy; `no-store` for API/health, `no-cache` HTML, and immutable
-hashed-asset caching. There are no trackers, external fonts, or remote scripts.
-
-Docker and Podman are unavailable in this worker, so exact local image creation
-was not possible; the locked production binary was built successfully. Cloud
-deployment completed through the supplied container work order on 2026-08-28:
-ACR image `sf-rss-saved-queue:c3aae35f03ea`, root `Dockerfile`, port 8080, and
-the public TLS URL `https://rss-saved-queue.sociobot.in` all returned success.
-Live `/health` is `{"status":"ok","build":"a1c49a7bd390bfed"}`, matching
-the Dockerfile source digest over `Cargo.toml`, `Cargo.lock`, migrations, and
-Rust source.
-
-Live `/opt/fleet/lib/verify-url.sh` passed at 617 ms with no console/page
-errors and the same document/a11y basics. A live dark invalid-save axe check
-reported zero serious/critical violations; 390 px had no overflow and keyboard
-Tab focused the skip link. Live request smoke observed only the product origin,
-zero cookies, zero service workers, and zero errors. A disposable live private
-item/feed test confirmed escaped XML, RFC 2822 `pubDate`, reader mark-read
-`200`, then cleanup delete `204` and token revoke `204`.
+End-to-end verification confirmed private device-key isolation, representative
+save/validation recovery, revocable non-guessable RSS links, escaped RFC 2822
+RSS output, the reader read endpoint, persistence across restart, 100 concurrent
+authenticated reads, 390 px/keyboard/reduced-motion behavior, zero serious or
+critical axe findings in both light and dark invalid-save states, same-origin-only
+traffic, no cookies/service worker/trackers, and secure cache/response headers.
 
 ## Run / deploy
 
@@ -100,7 +32,8 @@ Deploy with the factory container work order: root `Dockerfile`, external port
 
 ## Known gaps
 
-No functional product gap is known. This is intentionally not a PWA: saved
+No functional product defect was found. This is intentionally not a PWA: saved
 queue data is private server state, and offline startup displays a retry action
-instead of presenting stale data. Local Docker/Podman was unavailable, but the
-factory cloud container build and live identity validation passed.
+instead of presenting stale data. Docker/Podman was unavailable in this worker,
+so local container assembly was not run; locked stage builds and deployed build
+identity/assets were independently verified.
