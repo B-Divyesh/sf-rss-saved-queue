@@ -41,7 +41,7 @@ npm run check                                      PASS — 0 errors/warnings
 npm run build                                      PASS — JS 54.05 kB / 21.00 kB gzip; CSS 7.33 kB / 2.25 kB gzip
 npx playwright test --reporter=line                PASS — 8 tests
 cargo fmt --check                                  PASS
-cargo test                                         PASS — 5 tests
+cargo test                                         PASS — 6 tests
 cargo clippy --all-targets --all-features -- -D warnings  PASS
 cargo build --release --locked                     PASS
 git diff --check                                   PASS
@@ -75,7 +75,7 @@ was not possible; the locked production binary was built successfully. Cloud
 deployment completed through the supplied container work order on 2026-08-28:
 ACR image `sf-rss-saved-queue:c3aae35f03ea`, root `Dockerfile`, port 8080, and
 the public TLS URL `https://rss-saved-queue.sociobot.in` all returned success.
-Live `/health` is `{"status":"ok","build":"d5160be55d9ab20a"}`, matching
+Live `/health` is `{"status":"ok","build":"a1c49a7bd390bfed"}`, matching
 the Dockerfile source digest over `Cargo.toml`, `Cargo.lock`, migrations, and
 Rust source.
 

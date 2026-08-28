@@ -703,4 +703,33 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
     }
+    #[tokio::test]
+    async fn state_changing_routes_are_rate_limited_by_peer_address() {
+        let app = test_app().await;
+        let key = session(&app).await;
+        for number in 0..24 {
+            let (status, _) = send(
+                &app,
+                auth(Request::post("/api/items"), &key)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"title":"Item {number}","url":"https://example.com/{number}","tags":[]}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+        let (status, _) = send(
+            &app,
+            auth(Request::post("/api/items"), &key)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"title":"One too many","url":"https://example.com/too-many","tags":[]}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    }
 }
